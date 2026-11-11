@@ -12,21 +12,19 @@ const wranglerTomlPath = path.join(workerDir, 'wrangler.toml');
 const manifestPath = path.join(rootDir, 'plugin', 'manifest.json');
 const configJsPath = path.join(rootDir, 'plugin', 'js', 'config.js');
 
-const WRANGLER_BIN = process.platform === 'win32'
-  ? path.join(workerDir, 'node_modules', '.bin', 'wrangler.cmd')
-  : path.join(workerDir, 'node_modules', '.bin', 'wrangler');
+const WRANGLER_JS = path.join(workerDir, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 
 function runWrangler(args, { input = null, allowFail = false } = {}) {
-  const cmd = fs.existsSync(WRANGLER_BIN) ? WRANGLER_BIN : 'npx';
-  const fullArgs = cmd === 'npx' ? ['wrangler', ...args] : args;
+  const cmd = fs.existsSync(WRANGLER_JS) ? process.execPath : 'npx';
+  const fullArgs = cmd === process.execPath ? [WRANGLER_JS, ...args] : ['wrangler', ...args];
   const res = spawnSync(cmd, fullArgs, {
     cwd: workerDir,
     encoding: 'utf8',
-    shell: process.platform === 'win32',
+    shell: false,
     input: input ?? undefined,
   });
   if (!allowFail && res.status !== 0) {
-    throw new Error(`wrangler ${args.join(' ')} failed:\n${res.stdout}\n${res.stderr}`);
+    throw new Error(`wrangler ${args.join(' ')} failed (status=${res.status}):\n${res.stdout}\n${res.stderr}\n${res.error || ''}`);
   }
   return res;
 }
@@ -104,25 +102,58 @@ async function main() {
   console.log('Packed:', packed);
 
   console.log('\n8. Generating initial moderator & beta invite codes...');
-  const modInvRes = await fetch(`${workerUrl}/v1/mod/invites`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Admin-Secret': adminSecret,
-    },
-    body: JSON.stringify({ count: 1, level: 'moderator' }),
-  });
-  const modInv = await modInvRes.json();
+  const inviteHeaders = {
+    'Content-Type': 'application/json',
+    'User-Agent': 'OtzariaCommunityNotes-Deploy/1.0',
+    'X-Admin-Secret': adminSecret,
+  };
+  let modInv = null;
+  let betaInv = null;
 
-  const betaInvRes = await fetch(`${workerUrl}/v1/mod/invites`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Admin-Secret': adminSecret,
-    },
-    body: JSON.stringify({ count: 5, level: 'active' }),
-  });
-  const betaInv = await betaInvRes.json();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const modInvRes = await fetch(`${workerUrl}/v1/mod/invites`, {
+        method: 'POST',
+        headers: inviteHeaders,
+        body: JSON.stringify({ count: 1, level: 'moderator' }),
+      });
+      modInv = await modInvRes.json();
+
+      const betaInvRes = await fetch(`${workerUrl}/v1/mod/invites`, {
+        method: 'POST',
+        headers: inviteHeaders,
+        body: JSON.stringify({ count: 5, level: 'active' }),
+      });
+      betaInv = await betaInvRes.json();
+      break;
+    } catch {
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+
+  if (!modInv || !betaInv) {
+    console.log('Falling back to direct D1 invite seeding...');
+    const alpha = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const gen = () => {
+      const b = crypto.randomBytes(8);
+      let s = 'OTZ-';
+      for (let i = 0; i < 8; i++) {
+        if (i === 4) s += '-';
+        s += alpha[b[i] % alpha.length];
+      }
+      return s;
+    };
+    const now = Date.now();
+    const mCode = gen();
+    const bCodes = [gen(), gen(), gen(), gen(), gen()];
+    const sql = [
+      `INSERT INTO invites (code, created_by, level, created_at) VALUES ('${mCode}', 'bootstrap-admin', 'moderator', ${now});`,
+      ...bCodes.map((c) => `INSERT INTO invites (code, created_by, level, created_at) VALUES ('${c}', 'bootstrap-admin', 'active', ${now});`),
+    ].join(' ');
+    runWrangler(['d1', 'execute', 'otzaria-community-notes', '--remote', '--command', sql]);
+    modInv = { codes: [mCode] };
+    betaInv = { codes: bCodes };
+  }
 
   console.log('\n=== DEPLOYMENT COMPLETE ===');
   console.log('Live Worker URL:', workerUrl);

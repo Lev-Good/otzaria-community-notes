@@ -1,4 +1,4 @@
-name = "otzaria-community-notes"
+name = "community-notes"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
@@ -17,7 +17,7 @@ BACKUP_BRANCH = "main"
 [[d1_databases]]
 binding = "DB"
 database_name = "otzaria-community-notes"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "109a3e5d-8799-40bb-bbd4-aeb005005492"
 migrations_dir = "migrations"
 
 # Workers AI (אופציונלי — הסר הערה להפעלת סיווג מייעץ בשלב 4)

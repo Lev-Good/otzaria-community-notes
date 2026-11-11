@@ -32,7 +32,7 @@
   "network": {
     "enabled": true,
     "allowlist": [
-      "https://community-notes.otzaria-community.workers.dev"
+      "https://community-notes.otzaria-notes.workers.dev"
     ]
   },
   "contributes": {
@@ -52,8 +52,12 @@
           "title": "הערות קהילה",
           "icon": "comment_24_regular",
           "openPlugin": true,
-          "contexts": ["reader-text"],
-          "bookTypes": ["text"]
+          "contexts": [
+            "reader-text"
+          ],
+          "bookTypes": [
+            "text"
+          ]
         }
       ],
       "contextMenuItems": [
@@ -62,16 +66,25 @@
           "title": "הוסף הערה או שאלה",
           "icon": "comment_add_24_regular",
           "openPlugin": true,
-          "contexts": ["reader-selection"],
-          "bookTypes": ["text"]
+          "contexts": [
+            "reader-selection"
+          ],
+          "bookTypes": [
+            "text"
+          ]
         },
         {
           "id": "show-notes",
           "title": "הצג הערות קהילה",
           "icon": "comment_note_24_regular",
           "openPlugin": true,
-          "contexts": ["reader-selection", "reader-highlight"],
-          "bookTypes": ["text"]
+          "contexts": [
+            "reader-selection",
+            "reader-highlight"
+          ],
+          "bookTypes": [
+            "text"
+          ]
         }
       ],
       "shortcuts": [
