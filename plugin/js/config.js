@@ -3,7 +3,7 @@
   var CN = (global.CN = global.CN || {});
 
   CN.config = {
-    PLUGIN_VERSION: '0.2.0',
+    PLUGIN_VERSION: '0.4.0',
     DEFAULT_API_BASE: 'https://community-notes.otzaria-notes.workers.dev',
     MAX_CACHED_LOCATIONS: 200,
     MAX_QUOTE_CHARS: 200,

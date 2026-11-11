@@ -78,4 +78,6 @@ window.TRANSLATIONS.en = {
   'ייבוא מהערות אישיות': 'Import personal notes',
   'רענן רשימה': 'Refresh list',
   'פרסם נבחרות': 'Publish selected',
+  'הצג ספר': 'Show book',
+  'הסתר ספר': 'Hide book',
 };

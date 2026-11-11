@@ -30,6 +30,7 @@
       helpfulCountMode: 'from_3',        // from_3 | always | never
       // Behavior
       startScreen: 'section',            // section | questions | home
+      splitBookPane: 'auto',             // auto | always | off
       returnAfterSubmit: true,
       returnAfterReveal: true,
       defaultComposerKind: 'note',       // note | question | last

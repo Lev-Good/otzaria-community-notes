@@ -61,5 +61,6 @@
     modQueue: [],
     modLog: [],
     highlightCapabilities: { highlights: false, selection: false },
+    bookPaneOpenOverride: null, // null (auto setting) | true | false
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -159,6 +159,14 @@
       ['section', 'בקטע'], ['questions', 'שאלות'], ['home', 'בית'],
     ], async function (v) { s.startScreen = v; await saveAndRefresh(false); });
 
+    addSegmentedRow(behBody, 'תצוגת ספר לצד התוסף', 'מציג את הספר מצד ימין ואת ההערות וכתיבתן מצד שמאל', s.splitBookPane || 'auto', [
+      ['auto', 'חכם (בספר וכתיבה)'], ['always', 'תמיד כשיש ספר'], ['off', 'כבוי'],
+    ], async function (v) {
+      s.splitBookPane = v;
+      CN.state.bookPaneOpenOverride = null;
+      await saveAndRefresh(false);
+    });
+
     addSwitchRow(behBody, 'חזרה לספר אחרי שליחה', '', s.returnAfterSubmit !== false, false, async function (v) {
       s.returnAfterSubmit = v; await saveAndRefresh(false);
     });

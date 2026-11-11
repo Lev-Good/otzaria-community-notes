@@ -3,6 +3,7 @@
   var CN = (global.CN = global.CN || {});
 
   var autosaveTimer = null;
+  var activeAnchorUpdater = null;
 
   function renderComposer(container) {
     var el = CN.ui.el;
@@ -25,43 +26,48 @@
     container.textContent = '';
 
     var wrap = el('div', { className: 'container-narrow' });
+    var countsEl = el('div', {
+      className: 'section-counts',
+      id: 'compose-anchor-subtitle',
+      text: (anchor.titleHint || anchor.bookUid || '') + (anchor.ref ? (' · ' + anchor.ref) : ''),
+    });
 
     wrap.appendChild(el('div', { className: 'section-header' }, [
       el('div', { className: 'section-title-group' }, [
         el('h2', { className: 'section-heading', text: isEdit ? 'עריכת רשומה' : t('הוסף הערה או שאלה') }),
-        el('div', {
-          className: 'section-counts',
-          text: (anchor.titleHint || anchor.bookUid || '') + (anchor.ref ? (' · ' + anchor.ref) : ''),
-        }),
+        countsEl,
       ]),
     ]));
 
     // Quote display (read-only, reading font, clamped 2 lines)
-    var quoteBox = el('div', { className: 'quote-box' });
-    if (anchor.quote) {
-      var qText = el('div', {
-        className: 'quote-text clamped-2',
-        text: CN.ui.formatQuoteText(anchor.quote),
-      });
-      quoteBox.appendChild(qText);
-      if (anchor.multiParagraph) {
+    var quoteBox = el('div', { className: 'quote-box', id: 'compose-quote-box' });
+    function renderQuoteBox() {
+      quoteBox.textContent = '';
+      if (anchor.quote) {
+        quoteBox.appendChild(el('div', {
+          className: 'quote-text clamped-2',
+          text: CN.ui.formatQuoteText(anchor.quote),
+        }));
+        if (anchor.multiParagraph) {
+          quoteBox.appendChild(el('div', {
+            className: 'meta-time',
+            text: 'ההערה תוצמד לפסקה הראשונה שבחרת',
+          }));
+        }
+        if (anchor.tooLongTruncated) {
+          quoteBox.appendChild(el('div', {
+            className: 'meta-time',
+            text: 'הבחירה קוצרה ל־200 תווי עוגן (המגבלה לבחירה היא 500 תווים)',
+          }));
+        }
+      } else {
         quoteBox.appendChild(el('div', {
           className: 'meta-time',
-          text: 'ההערה תוצמד לפסקה הראשונה שבחרת',
+          text: isEdit ? 'הערה על הקטע כולו' : 'הערה על הקטע כולו (אפשר לסמן ציטוט בספר שבצד כדי לעגן במדויק)',
         }));
       }
-      if (anchor.tooLongTruncated) {
-        quoteBox.appendChild(el('div', {
-          className: 'meta-time',
-          text: 'הבחירה קוצרה ל־200 תווי עוגן (המגבלה לבחירה היא 500 תווים)',
-        }));
-      }
-    } else {
-      quoteBox.appendChild(el('div', {
-        className: 'meta-time',
-        text: 'הערה על הקטע כולו',
-      }));
     }
+    renderQuoteBox();
     wrap.appendChild(quoteBox);
 
     // Kind selector (disabled on edit)
@@ -365,6 +371,20 @@
     draftBtn.addEventListener('click', function () { saveDraftNow(true); });
     cancelBtn.addEventListener('click', handleCancel);
 
+    activeAnchorUpdater = function (newAnchor) {
+      if (isEdit || !newAnchor) return;
+      anchor = Object.assign({}, anchor, newAnchor);
+      comp.anchor = anchor;
+      countsEl.textContent = (anchor.titleHint || anchor.bookUid || '') + (anchor.ref ? (' · ' + anchor.ref) : '');
+      renderQuoteBox();
+      updateValidation();
+      if (CN.bookPane) {
+        CN.bookPane.state.focusQuote = anchor.quote || '';
+        CN.bookPane.state.activeSectionIndex = Number(anchor.sectionHint || 0);
+        CN.bookPane.renderBookPaneDom({ scrollToActive: false });
+      }
+    };
+
     updateValidation();
     setTimeout(function () { textarea.focus(); }, 0);
   }
@@ -492,8 +512,17 @@
     modal.classList.add('open');
   }
 
+  function updateComposeAnchor(newAnchor) {
+    if (typeof activeAnchorUpdater === 'function') {
+      activeAnchorUpdater(newAnchor);
+    } else if (CN.state.compose) {
+      CN.state.compose.anchor = Object.assign({}, CN.state.compose.anchor || {}, newAnchor);
+    }
+  }
+
   CN.composer = {
     renderComposer: renderComposer,
     updateUnsavedFlag: updateUnsavedFlag,
+    updateComposeAnchor: updateComposeAnchor,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

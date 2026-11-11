@@ -31,14 +31,32 @@ function loadPluginModules(extraEnv = {}) {
       addEventListener() {},
       createTextNode: (t) => ({ nodeType: 3, textContent: t }),
       createElement: (tag) => {
+        const classes = new Set();
         const node = {
           tagName: tag.toUpperCase(),
           className: '',
           textContent: '',
           attrs: {},
+          dataset: {},
+          style: {},
           children: [],
+          classList: {
+            add(c) { classes.add(c); },
+            remove(c) { classes.delete(c); },
+            toggle(c, force) {
+              if (force === undefined) {
+                if (classes.has(c)) { classes.delete(c); return false; }
+                classes.add(c); return true;
+              }
+              if (force) classes.add(c); else classes.delete(c);
+              return Boolean(force);
+            },
+            contains(c) { return classes.has(c); },
+          },
           setAttribute(k, v) { this.attrs[k] = v; },
           addEventListener() {},
+          querySelector() { return null; },
+          querySelectorAll() { return []; },
           appendChild(ch) { this.children.push(ch); return ch; },
         };
         return node;
@@ -184,6 +202,7 @@ test('All plugin JS modules parse cleanly and register expected namespaces', () 
     'js/ui-cards.js',
     'js/ui-composer.js',
     'js/ui-importer.js',
+    'js/ui-bookpane.js',
     'js/ui-onboarding.js',
     'js/ui-settings.js',
     'js/ui-mod.js',
@@ -198,6 +217,7 @@ test('All plugin JS modules parse cleanly and register expected namespaces', () 
   assert.ok(context.CN.cards.buildNoteCard);
   assert.ok(context.CN.composer.renderComposer);
   assert.ok(context.CN.importer.renderImportScreen);
+  assert.ok(context.CN.bookPane.syncToContext);
   assert.ok(context.CN.onboarding.ensureRegistered);
   assert.ok(context.CN.settingsUi.openSettingsPanel);
   assert.ok(context.CN.modUi.renderModPanel);
@@ -298,4 +318,80 @@ test('Client batch personal notes importer discovers notes, resolves bookUid & r
 
   const uploadedMap = storageMap.get('import:uploaded:v1');
   assert.ok(uploadedMap['בראשית::pn1']);
+});
+
+test('Client split book pane visibility, anchor builder, and TOC/section loading', async () => {
+  const { context } = loadPluginModules({
+    innerWidth: 1200,
+    navigator: { onLine: true },
+    setInterval() { return 1; },
+    clearInterval() {},
+  });
+  for (const f of ['js/ui-bookpane.js', 'js/ui-composer.js', 'js/app.js']) {
+    vm.runInContext(fs.readFileSync(path.join(pluginDir, f), 'utf8'), context, { filename: f });
+  }
+
+  context.CN.state.context = { bookUid: 'id:183', bookId: 'בראשית', titleHint: 'בראשית', ref: 'פרק א', sectionIndex: 2 };
+  context.CN.state.screen = 'compose';
+  context.CN.state.settings.splitBookPane = 'auto';
+  assert.equal(context.CN.bookPane.shouldShowBookPane(), true);
+
+  context.CN.state.settings.splitBookPane = 'off';
+  assert.equal(context.CN.bookPane.shouldShowBookPane(), false);
+
+  context.CN.state.bookPaneOpenOverride = true;
+  assert.equal(context.CN.bookPane.shouldShowBookPane(), true);
+
+  context.CN.bookPane.state.bookUid = 'id:183';
+  context.CN.bookPane.state.bookId = 'בראשית';
+  context.CN.bookPane.state.titleHint = 'בראשית';
+  const anchor = context.CN.bookPane.buildAnchorForSectionAndSelection(
+    {
+      sectionIndex: 2,
+      ref: 'פרק א פסוק ג',
+      sourceText: 'ויאמר אלהים יהי אור ויהי אור',
+      renderedText: 'ויאמר ה׳ יהי אור ויהי אור',
+    },
+    'יהי אור'
+  );
+  assert.equal(anchor.bookUid, 'id:183');
+  assert.equal(anchor.sectionHint, 2);
+  assert.equal(anchor.ref, 'פרק א פסוק ג');
+  assert.equal(anchor.quote, 'יהי אור');
+  assert.equal(anchor.occurrence, 0);
+  assert.ok(anchor.prefix.includes('אלהים'));
+  assert.ok(anchor.suffix.includes('ויהי'));
+
+  const mockPane = context.document.createElement('aside');
+  mockPane.classList = {
+    classes: new Set(['hidden']),
+    add(c) { this.classes.add(c); },
+    remove(c) { this.classes.delete(c); },
+    toggle(c, force) { force ? this.classes.add(c) : this.classes.delete(c); },
+    contains(c) { return this.classes.has(c); },
+  };
+  mockPane.querySelector = () => null;
+  mockPane.querySelectorAll = () => [];
+  const origGetById = context.document.getElementById;
+  context.document.getElementById = (id) => (id === 'book-pane' ? mockPane : origGetById(id));
+
+  const origCall = context.Otzaria.call;
+  context.Otzaria.call = async (method, payload) => {
+    if (method === 'library.getBookToc') {
+      return { success: true, data: [{ text: 'פרק א', index: 0, level: 1 }] };
+    }
+    if (method === 'reader.getSectionTextMap') {
+      return {
+        success: true,
+        data: { sectionIndex: payload.sectionIndex, currentRef: 'פרק א פסוק ' + (payload.sectionIndex + 1), renderedText: 'טקסט ' + payload.sectionIndex, sourceText: 'טקסט ' + payload.sectionIndex },
+      };
+    }
+    return origCall(method, payload);
+  };
+
+  await context.CN.bookPane.syncToContext();
+  assert.equal(mockPane.classList.contains('hidden'), false);
+  assert.equal(context.CN.bookPane.state.toc.length, 1);
+  assert.ok(context.CN.bookPane.state.sections[2]);
+  assert.equal(context.CN.bookPane.state.sections[2].ref, 'פרק א פסוק 3');
 });

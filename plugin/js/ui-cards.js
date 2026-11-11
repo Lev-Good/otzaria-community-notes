@@ -181,13 +181,24 @@
         type: 'button',
         className: 'action-btn',
         text: t('הצג בטקסט'),
-        onClick: function () {
+        onClick: async function () {
+          var splitVisible = CN.bookPane && CN.bookPane.shouldShowBookPane();
+          if (splitVisible && CN.bookPane.focusLocation) {
+            await CN.bookPane.focusLocation({
+              bookId: CN.state.context.bookId || note.titleHint || note.bookUid,
+              bookUid: note.bookUid,
+              titleHint: note.titleHint,
+              sectionIndex: note.sectionHint,
+              quote: note.quote,
+              isQuestion: note.kind === 'question' && note.questionStatus === 'open',
+            });
+          }
           CN.highlights.revealNoteInBook({
             note: note,
             bookId: CN.state.context.bookId || note.titleHint || note.bookUid,
             bookUid: note.bookUid,
             theme: CN.state.theme,
-            returnToReader: CN.state.settings.returnAfterReveal !== false,
+            returnToReader: !splitVisible && CN.state.settings.returnAfterReveal !== false,
           });
         },
       }));

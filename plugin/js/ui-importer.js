@@ -735,6 +735,30 @@
         syncStatus();
       });
 
+      var openSideBtn = el('button', {
+        type: 'button',
+        className: 'link-btn',
+        text: 'הצג בספר בצד',
+        onClick: async function () {
+          CN.state.context = Object.assign({}, CN.state.context, {
+            bookUid: item.bookUid || item.bookId,
+            bookId: item.bookId,
+            titleHint: item.titleHint || item.bookId,
+            ref: item.ref || '',
+            sectionIndex: Math.max(0, Number(item.lineNumber) || 0),
+          });
+          if (CN.bookPane && CN.bookPane.focusLocation) {
+            await CN.bookPane.focusLocation({
+              bookId: item.bookId,
+              bookUid: item.bookUid,
+              titleHint: item.titleHint,
+              sectionIndex: Math.max(0, Number(item.lineNumber) || 0),
+              quote: '',
+            });
+          }
+        },
+      });
+
       var openBookBtn = el('button', {
         type: 'button',
         className: 'link-btn',
@@ -754,7 +778,7 @@
 
       card.appendChild(el('div', { className: 'importer-item-head' }, [
         el('label', { className: 'importer-check-label' }, [chk, locLabel]),
-        el('div', { className: 'card-actions-group' }, [openBookBtn, statusBadge]),
+        el('div', { className: 'card-actions-group' }, [openSideBtn, openBookBtn, statusBadge]),
       ]));
       card.appendChild(sourceBox);
       card.appendChild(ta);

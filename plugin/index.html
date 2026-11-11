@@ -19,6 +19,7 @@
   <script src="js/ui-cards.js" defer></script>
   <script src="js/ui-composer.js" defer></script>
   <script src="js/ui-importer.js" defer></script>
+  <script src="js/ui-bookpane.js" defer></script>
   <script src="js/ui-onboarding.js" defer></script>
   <script src="js/ui-settings.js" defer></script>
   <script src="js/ui-mod.js" defer></script>
@@ -34,6 +35,7 @@
         </div>
       </div>
       <div class="topbar-actions">
+        <button type="button" class="topbar-btn hidden" id="toggle-book-pane-btn">הצג ספר</button>
         <button type="button" class="topbar-btn hidden" id="back-to-book-btn">חזרה לספר</button>
         <button type="button" class="topbar-icon-btn" id="inbox-btn" aria-label="הודעות" title="הודעות" onclick="CN.app.navigate('messages')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -56,7 +58,10 @@
 
     <div class="status-banner info hidden" id="global-notice-banner"></div>
 
-    <main class="app-content" id="app-content" role="main"></main>
+    <div class="workspace-split" id="workspace-split">
+      <aside class="book-pane hidden" id="book-pane" aria-label="תצוגת ספר לצד ההערות"></aside>
+      <main class="app-content" id="app-content" role="main"></main>
+    </div>
   </div>
 
   <!-- Settings Overlay Panel -->

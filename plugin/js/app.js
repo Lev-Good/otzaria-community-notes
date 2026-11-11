@@ -35,6 +35,49 @@
     global.Otzaria.on('reader.context_menu_item_clicked', onContextMenuClicked);
     global.Otzaria.on('contextMenu.itemClicked', onContextMenuClicked);
     global.Otzaria.on('ui.messageClicked', onMessageClicked);
+    var liveReaderTimer = null;
+    function scheduleLiveReaderSync(ev) {
+      if (CN.state.screen === 'compose' || CN.state.screen === 'import') return;
+      if (liveReaderTimer) clearTimeout(liveReaderTimer);
+      liveReaderTimer = setTimeout(async function () {
+        try {
+          var st = await global.Otzaria.call('reader.getCurrentState');
+          var d = (st && st.success && st.data) || {};
+          var newBookUid = d.bookUid || (d.currentId != null ? 'id:' + d.currentId : '') || CN.state.context.bookUid;
+          var newBookId = d.currentBookId || (ev && ev.currentBookId) || (ev && ev.book) || CN.state.context.bookId;
+          var newTitle = d.currentBook || (ev && ev.currentBook) || (ev && ev.book) || CN.state.context.titleHint;
+          var newRef = (ev && ev.currentRef !== undefined) ? (ev.currentRef || '') : (d.currentRef || '');
+          var newIdx = (ev && typeof ev.currentIndex === 'number')
+            ? ev.currentIndex
+            : (ev && typeof ev.index === 'number' ? ev.index : (typeof d.currentIndex === 'number' ? d.currentIndex : CN.state.context.sectionIndex));
+          if (!newBookUid && !newBookId) return;
+          var changed = newBookUid !== CN.state.context.bookUid
+            || newRef !== CN.state.context.ref
+            || newIdx !== CN.state.context.sectionIndex;
+          if (!changed) return;
+
+          CN.state.context = Object.assign({}, CN.state.context, {
+            bookUid: newBookUid || newBookId,
+            bookId: newBookId || newBookUid,
+            titleHint: newTitle || newBookId || newBookUid,
+            ref: newRef,
+            sectionIndex: newIdx || 0,
+            anchor: null,
+            clickedHighlightIds: [],
+          });
+          CN.state.isPdf = d.currentType === 'pdf';
+          renderChrome();
+          if (CN.state.screen === 'section') {
+            loadSectionNotes({ forceRefresh: true });
+          } else if (CN.bookPane && CN.bookPane.syncToContext) {
+            CN.bookPane.syncToContext();
+          }
+        } catch (_) { /* ignore */ }
+      }, 250);
+    }
+
+    global.Otzaria.on('reader.current_ref_changed', scheduleLiveReaderSync);
+    global.Otzaria.on('reader.current_book_changed', scheduleLiveReaderSync);
     global.Otzaria.on('reader.sectionContentChanged', function (ev) {
       if (ev && ev.changeType === 'source-content' && CN.state.screen === 'section') {
         loadSectionNotes({ forceRefresh: false });
@@ -71,6 +114,15 @@
         CN.settingsUi.closeSettingsPanel();
       }
     });
+
+    if (typeof global.addEventListener === 'function') {
+      global.addEventListener('resize', function () {
+        if (CN.bookPane && CN.state.bookPaneOpenOverride === null) {
+          renderChrome();
+          CN.bookPane.syncToContext();
+        }
+      });
+    }
   }
 
   async function onBoot(payload) {
@@ -347,6 +399,23 @@
         : (CN.state.identity ? CN.state.identity.displayName : '');
     }
 
+    // Toggle split Book Pane button (visible whenever a text book context exists)
+    var bookPaneBtn = document.getElementById('toggle-book-pane-btn');
+    if (bookPaneBtn) {
+      var hasBook = Boolean(ctx.bookUid && !CN.state.isPdf);
+      bookPaneBtn.classList.toggle('hidden', !hasBook);
+      if (hasBook && CN.bookPane) {
+        var paneActive = CN.bookPane.shouldShowBookPane();
+        bookPaneBtn.textContent = paneActive ? t('הסתר ספר') : t('הצג ספר');
+        bookPaneBtn.setAttribute('aria-pressed', paneActive ? 'true' : 'false');
+        bookPaneBtn.onclick = function () {
+          CN.state.bookPaneOpenOverride = !CN.bookPane.shouldShowBookPane();
+          renderChrome();
+          CN.bookPane.syncToContext();
+        };
+      }
+    }
+
     // Back to book button (only when entered from reader)
     var backBtn = document.getElementById('back-to-book-btn');
     if (backBtn) {
@@ -451,6 +520,10 @@
     else if (scr === 'compose') CN.composer.renderComposer(main);
     else if (scr === 'import') CN.importer.renderImportScreen(main);
     else if (scr === 'mod') CN.modUi.renderModPanel(main);
+
+    if (CN.bookPane && CN.bookPane.syncToContext) {
+      CN.bookPane.syncToContext();
+    }
   }
 
   async function loadSectionNotes({ forceRefresh = true } = {}) {
@@ -504,6 +577,9 @@
       CN.state.sectionRefreshing = false;
       if (CN.state.screen === 'section') {
         renderSectionScreen(document.getElementById('app-content'), { skipFetch: true });
+      }
+      if (CN.bookPane && CN.bookPane.isVisible && CN.bookPane.isVisible()) {
+        CN.bookPane.renderBookPaneDom({ scrollToActive: false });
       }
     }
   }
