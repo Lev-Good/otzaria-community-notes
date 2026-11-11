@@ -1,0 +1,19 @@
+{
+  "name": "otzaria-community-notes",
+  "version": "0.2.0",
+  "private": true,
+  "description": "תוסף הערות הקהילה לאוצריא ושרת Cloudflare Worker + D1",
+  "scripts": {
+    "test": "node tests/run-all.mjs",
+    "test:worker": "node --test tests/worker.test.mjs",
+    "test:client": "node --test tests/client.test.mjs",
+    "validate": "node scripts/validate-plugin.mjs",
+    "pack": "node scripts/pack-plugin.mjs",
+    "pack:dev": "node scripts/build-dev-plugin.mjs",
+    "deploy:worker": "node scripts/deploy-cloudflare.mjs",
+    "dev:worker": "node scripts/dev-worker-local.mjs"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

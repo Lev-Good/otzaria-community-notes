@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.wrangler/
+.wrangler-local.sqlite*
+.dev.vars
+*.otzplugin
+*.docx
+.DS_Store
+Thumbs.db

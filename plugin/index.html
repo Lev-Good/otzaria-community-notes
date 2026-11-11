@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>הערות הקהילה</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="i18n/en.js"></script>
+  <script src="js/i18n.js" defer></script>
+  <script src="js/config.js" defer></script>
+  <script src="js/storage.js" defer></script>
+  <script src="js/crypto.js" defer></script>
+  <script src="js/filter.js" defer></script>
+  <script src="js/anchors.js" defer></script>
+  <script src="js/api.js" defer></script>
+  <script src="js/highlights.js" defer></script>
+  <script src="js/state.js" defer></script>
+  <script src="js/ui-shared.js" defer></script>
+  <script src="js/ui-cards.js" defer></script>
+  <script src="js/ui-composer.js" defer></script>
+  <script src="js/ui-onboarding.js" defer></script>
+  <script src="js/ui-settings.js" defer></script>
+  <script src="js/ui-mod.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar-start">
+        <div class="topbar-titles">
+          <h1>הערות הקהילה</h1>
+          <span class="subtitle" id="topbar-subtitle"></span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-btn hidden" id="back-to-book-btn">חזרה לספר</button>
+        <button type="button" class="topbar-icon-btn" id="inbox-btn" aria-label="הודעות" title="הודעות" onclick="CN.app.navigate('messages')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          <span class="badge-count hidden" id="topbar-inbox-badge">0</span>
+        </button>
+        <button type="button" class="topbar-icon-btn" id="settings-btn" aria-label="הגדרות" title="הגדרות" onclick="CN.settingsUi.openSettingsPanel()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="context-strip hidden" id="context-strip"></div>
+    <nav class="nav-bar" id="nav-bar" aria-label="ניווט ראשי"></nav>
+
+    <div class="status-banner info hidden" id="global-notice-banner"></div>
+
+    <main class="app-content" id="app-content" role="main"></main>
+  </div>
+
+  <!-- Settings Overlay Panel -->
+  <div class="overlay-scrim" id="settings-scrim"></div>
+  <aside class="overlay-panel" id="settings-panel" aria-label="הגדרות">
+    <div class="panel-head">
+      <span>הגדרות</span>
+      <button type="button" class="btn-secondary" id="close-settings-btn">סגור</button>
+    </div>
+    <div class="panel-body" id="settings-body"></div>
+  </aside>
+
+  <!-- Generic Modal Backdrop -->
+  <div class="modal-backdrop" id="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog" id="modal-dialog"></div>
+  </div>
+
+  <!-- Toast Live Region -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

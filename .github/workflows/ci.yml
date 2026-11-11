@@ -1,0 +1,33 @@
+name: CI & Plugin Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run Worker & Client tests and build .otzplugin
+        run: node tests/run-all.mjs
+      - name: Upload packaged plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: community-notes-otzplugin
+          path: dist/community-notes.otzplugin
+
+  otzaria-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Otzaria/otzaria-plugin-validator@v1
+        with:
+          plugin-dir: plugin
+          otzaria-user: ${{ secrets.OTZARIA_USER }}
+          otzaria-password: ${{ secrets.OTZARIA_PASSWORD }}

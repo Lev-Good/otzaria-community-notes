@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <title>הערות הקהילה — רקע</title>
+  <script src="i18n/en.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/crypto.js"></script>
+  <script src="js/anchors.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/highlights.js"></script>
+</head>
+<body>
+  <script>
+    (function () {
+      'use strict';
+      var bootTheme = null;
+      var permissions = [];
+      var settings = CN.storage.defaultSettings();
+      var identity = null;
+
+      function hasPerm(p) {
+        return permissions.indexOf(p) !== -1;
+      }
+
+      async function isShabbatQuiet() {
+        if (!settings.shabbatQuietMode || !hasPerm('calendar.read')) return false;
+        try {
+          var res = await Otzaria.call('calendar.getJewishDate');
+          if (res && res.success && res.data) {
+            if (res.data.isShabbat) return true;
+            var holidays = res.data.holidays || [];
+            for (var i = 0; i < holidays.length; i++) {
+              if (holidays[i] && holidays[i].kind === 'yomTov') return true;
+            }
+          }
+        } catch (_) { /* ignore */ }
+        return false;
+      }
+
+      async function checkInboxAndNotify() {
+        if (!identity || !identity.userId) return;
+        if (!settings.inAppNotifications && !settings.systemNotifications) return;
+
+        try {
+          var conn = await Otzaria.call('app.getConnectivity');
+          if (!conn || !conn.success || !conn.data || conn.data.isOnline === false) return;
+        } catch (_) {
+          return;
+        }
+
+        if (await isShabbatQuiet()) return;
+
+        try {
+          var lastSeq = Number(await CN.storage.get(CN.storage.KEYS.INBOX_LAST_SEQ, 0));
+          var res = await CN.api.request('GET', '/v1/me/inbox?after=' + lastSeq, {
+            auth: true,
+            identity: identity,
+            settings: settings,
+          });
+          if (!res.ok || !res.data || !Array.isArray(res.data.items)) return;
+
+          var unread = res.data.items.filter(function (m) {
+            if (m.readAt) return false;
+            if (m.type === 'reply' && settings.notifyTypes.reply === false) return false;
+            if (m.type === 'answer' && settings.notifyTypes.answer === false) return false;
+            if (m.type === 'accepted' && settings.notifyTypes.accepted === false) return false;
+            if (m.type && m.type.indexOf('mod_') === 0 && settings.notifyTypes.moderation === false) return false;
+            return true;
+          });
+
+          if (unread.length === 0) return;
+
+          var newest = unread[0];
+          await CN.storage.set(CN.storage.KEYS.INBOX_LAST_SEQ, newest.seq);
+
+          var msgText = unread.length === 1
+            ? (newest.summary || CN.i18n.t('יש לך הודעה חדשה בהערות הקהילה'))
+            : CN.i18n.t('יש לך {n} הודעות חדשות בהערות הקהילה', { n: unread.length });
+
+          if (settings.inAppNotifications !== false) {
+            await Otzaria.call('notifications.showInApp', {
+              message: msgText,
+              type: 'info',
+              tapOpenPlugin: true,
+              tapPayload: { rootId: newest.rootId, noteId: newest.noteId },
+            });
+          }
+
+          if (settings.systemNotifications && hasPerm('notifications.system')) {
+            await Otzaria.call('notifications.sendSystem', {
+              title: CN.i18n.t('הערות הקהילה'),
+              body: msgText,
+            });
+          }
+        } catch (_) { /* ignore network errors in background */ }
+      }
+
+      async function syncHighlightsForLocation(bookUid, bookId, ref) {
+        if (!settings.highlightEnabled || !hasPerm('reader.highlight') || !bookUid) return;
+        try {
+          var conn = await Otzaria.call('app.getConnectivity');
+          var isOnline = Boolean(conn && conn.success && conn.data && conn.data.isOnline !== false);
+          var notes = null;
+
+          if (isOnline) {
+            var res = await CN.api.request(
+              'GET',
+              '/v1/books/' + encodeURIComponent(bookUid) + '/notes?ref=' + encodeURIComponent(ref || ''),
+              { auth: Boolean(identity && identity.userId), identity: identity, settings: settings }
+            );
+            if (res.ok && res.data && Array.isArray(res.data.items)) {
+              notes = res.data.items;
+              await CN.storage.putCachedSectionNotes(bookUid, ref, notes);
+            }
+          }
+          if (!notes) {
+            var cached = await CN.storage.getCachedSectionNotes(bookUid, ref);
+            notes = cached ? cached.items : [];
+          }
+          if (notes && notes.length > 0) {
+            await CN.highlights.syncSectionHighlights({
+              notes: notes,
+              bookId: bookId || bookUid,
+              bookUid: bookUid,
+              theme: bootTheme,
+              settings: settings,
+            });
+          } else {
+            await CN.highlights.clearPluginHighlights();
+          }
+        } catch (_) { /* ignore */ }
+      }
+
+      Otzaria.on('plugin.boot', async function (payload) {
+        if (!payload || !payload.app || payload.app.runMode !== 'background') return;
+        CN.i18n.setLanguage(payload.app.language, payload.app.textDirection);
+        bootTheme = payload.theme;
+        permissions = payload.permissions || [];
+
+        if (!hasPerm('app.run_on_startup')) {
+          await Otzaria.call('plugin.backgroundDone');
+          return;
+        }
+
+        settings = await CN.storage.loadSettings();
+        identity = await CN.storage.get(CN.storage.KEYS.IDENTITY, null);
+
+        try {
+          await checkInboxAndNotify();
+          await CN.storage.set(CN.storage.KEYS.BG_CHECK_AT, Date.now());
+        } finally {
+          // If woke solely for startup check without ref event, finish cleanly
+          await Otzaria.call('plugin.backgroundDone');
+        }
+      });
+
+      Otzaria.on('reader.current_ref_changed', async function (ev) {
+        if (!hasPerm('app.run_on_startup')) return;
+        settings = await CN.storage.loadSettings();
+        identity = await CN.storage.get(CN.storage.KEYS.IDENTITY, null);
+
+        // Throttled periodic inbox check on reading navigation
+        var freqMin = Number(settings.bgCheckFrequencyMin);
+        if (freqMin > 0) {
+          var lastCheck = Number(await CN.storage.get(CN.storage.KEYS.BG_CHECK_AT, 0));
+          if (Date.now() - lastCheck >= freqMin * 60 * 1000) {
+            await CN.storage.set(CN.storage.KEYS.BG_CHECK_AT, Date.now());
+            await checkInboxAndNotify();
+          }
+        }
+
+        // Sync inline highlights if permitted
+        if (ev && ev.currentBookId && settings.highlightEnabled && hasPerm('reader.highlight')) {
+          var stateRes = await Otzaria.call('reader.getCurrentState');
+          var bookUid = (stateRes && stateRes.success && stateRes.data && stateRes.data.bookUid) || ev.currentBookId;
+          await syncHighlightsForLocation(bookUid, ev.currentBookId, ev.currentRef || '');
+        }
+      });
+
+      Otzaria.on('reader.sectionContentChanged', async function (ev) {
+        if (!ev || ev.changeType !== 'source-content') return;
+        if (!hasPerm('app.run_on_startup') || !hasPerm('reader.highlight')) return;
+        var cur = await Otzaria.call('reader.getCurrentRef');
+        if (cur && cur.success && cur.data) {
+          await syncHighlightsForLocation(cur.data.bookUid || cur.data.currentBookId, cur.data.currentBookId, cur.data.currentRef || '');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

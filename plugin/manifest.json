@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "id": "community-notes",
+  "name": "הערות הקהילה",
+  "version": "0.2.0",
+  "description": "שכבה משותפת של הערות, שאלות ותשובות על דפי הספרייה באוצריא",
+  "author": "קהילת אוצריא",
+  "stability": "beta",
+  "minAppVersion": "0.9.97",
+  "sdkVersion": "1.x",
+  "entrypoint": "index.html",
+  "permissions": [
+    "app.startup_contributions",
+    "app.run_on_startup",
+    "reader.toolbar",
+    "reader.context_menu",
+    "reader.open",
+    "reader.highlight",
+    "app.shortcuts",
+    "network.access",
+    "settings.read",
+    "library.books.read",
+    "calendar.read",
+    "fs.user_files.write",
+    "notes.read",
+    "notifications.system",
+    "events.subscribe:reader.current_ref_changed",
+    "events.subscribe:reader.sectionContentChanged",
+    "events.subscribe:settings.changed",
+    "events.subscribe:plugin.permissions_changed"
+  ],
+  "network": {
+    "enabled": true,
+    "allowlist": [
+      "https://community-notes.otzaria-community.workers.dev"
+    ]
+  },
+  "contributes": {
+    "toolTab": {
+      "title": "הערות הקהילה",
+      "order": 350,
+      "defaultPinned": true,
+      "iconName": "comment_24_regular"
+    },
+    "background": {
+      "entrypoint": "background.html"
+    },
+    "startup": {
+      "toolbarItems": [
+        {
+          "id": "open-notes",
+          "title": "הערות קהילה",
+          "icon": "comment_24_regular",
+          "openPlugin": true,
+          "contexts": ["reader-text"],
+          "bookTypes": ["text"]
+        }
+      ],
+      "contextMenuItems": [
+        {
+          "id": "add-note",
+          "title": "הוסף הערה או שאלה",
+          "icon": "comment_add_24_regular",
+          "openPlugin": true,
+          "contexts": ["reader-selection"],
+          "bookTypes": ["text"]
+        },
+        {
+          "id": "show-notes",
+          "title": "הצג הערות קהילה",
+          "icon": "comment_note_24_regular",
+          "openPlugin": true,
+          "contexts": ["reader-selection", "reader-highlight"],
+          "bookTypes": ["text"]
+        }
+      ],
+      "shortcuts": [
+        {
+          "id": "add-note-key",
+          "label": "הוסף הערה קהילתית",
+          "key": "ctrl+alt+n",
+          "contextMenuItemId": "add-note"
+        }
+      ],
+      "activationEvents": [
+        "app.startup",
+        "reader.current_ref_changed",
+        "reader.sectionContentChanged"
+      ]
+    }
+  }
+}

@@ -1,0 +1,34 @@
+name = "otzaria-community-notes"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+MIN_PLUGIN_VERSION = "0.1.0"
+WRITES_ENABLED = "true"
+INVITE_REQUIRED = "true"
+ALLOW_BOOTSTRAP_ADMIN = "false"
+SYSTEM_NOTICE = ""
+AI_MODERATION_ENABLED = "false"
+BACKUP_REPO = ""
+BACKUP_BRANCH = "main"
+
+# D1 database binding — החלף את database_id לאחר הרצת:
+# npx wrangler d1 create otzaria-community-notes
+[[d1_databases]]
+binding = "DB"
+database_name = "otzaria-community-notes"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+# Workers AI (אופציונלי — הסר הערה להפעלת סיווג מייעץ בשלב 4)
+# [ai]
+# binding = "AI"
+
+# Cron יומי (02:00 UTC) לגיבוי JSON ל-GitHub וניקוי הודעות ישנות מ-60 יום
+[triggers]
+crons = ["0 2 * * *"]
+
+# סודות שיש להגדיר דרך `wrangler secret put`:
+# - CHALLENGE_SECRET (חובה בפרודקשן: מחרוזת אקראית לחתימת אתגרי PoW)
+# - GITHUB_BACKUP_TOKEN (אופציונלי: PAT עם הרשאת contents:write לגיבוי היומי)
+# - ADMIN_BOOTSTRAP_SECRET (אופציונלי: סוד חד-פעמי ליצירת מנהל ראשון וקודי הזמנה)
