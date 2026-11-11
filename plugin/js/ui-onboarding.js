@@ -86,9 +86,9 @@
                 availMsg.textContent = (res.data && res.data.message) || 'השם אינו זמין';
                 availMsg.className = 'validation-hint error';
               }
-            } catch (_) {
-              availMsg.textContent = 'לא ניתן לבדוק זמינות כרגע';
-              availMsg.className = 'validation-hint warning';
+            } catch (err) {
+              availMsg.textContent = (err && err.message) || 'לא ניתן לבדוק זמינות כרגע';
+              availMsg.className = 'validation-hint error';
             }
           }, 300);
         });

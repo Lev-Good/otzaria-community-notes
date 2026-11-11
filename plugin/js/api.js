@@ -12,27 +12,38 @@
   async function streamRequest(url, options) {
     // Prefer Otzaria.call('network.fetchStream') when inside Otzaria host to avoid WebView CORS
     if (global.Otzaria && typeof global.Otzaria.call === 'function' && global.Otzaria.__isStub !== true) {
-      var chunks = global.Otzaria.call('network.fetchStream', {
-        url: url,
-        method: options.method || 'GET',
-        headers: options.headers || {},
-        body: options.body || undefined,
-        timeoutMs: options.timeoutMs || 25000,
-      });
-      var status = 0;
-      var ok = false;
-      var respHeaders = {};
-      var bodyText = '';
-      for await (var chunk of chunks) {
-        if (chunk.type === 'response') {
-          status = chunk.status;
-          ok = chunk.ok;
-          respHeaders = chunk.headers || {};
-        } else if (chunk.type === 'data') {
-          bodyText += chunk.body || '';
+      try {
+        var chunks = global.Otzaria.call('network.fetchStream', {
+          url: url,
+          method: options.method || 'GET',
+          headers: options.headers || {},
+          body: options.body || undefined,
+          timeoutMs: options.timeoutMs || 25000,
+        });
+        var status = 0;
+        var ok = false;
+        var respHeaders = {};
+        var bodyText = '';
+        for await (var chunk of chunks) {
+          if (chunk.type === 'response') {
+            status = chunk.status;
+            ok = chunk.ok;
+            respHeaders = chunk.headers || {};
+          } else if (chunk.type === 'data') {
+            bodyText += chunk.body || '';
+          }
         }
+        return { status: status, ok: ok, headers: respHeaders, text: bodyText };
+      } catch (err) {
+        var msg = (err && err.message) ? String(err.message) : String(err || '');
+        if (msg.indexOf('error.forbidden') !== -1) {
+          throw new Error('אוצריא חסמה את הגישה לשרת כי כתובתו אינה ברשימת ההיתר הפעילה (נדרש מיזוג PR או שימוש בגרסת הבדיקה המקומית)');
+        }
+        if (msg.indexOf('error.permission_denied') !== -1) {
+          throw new Error('חסרה הרשאת רשת לתוסף בהגדרות אוצריא');
+        }
+        throw err;
       }
-      return { status: status, ok: ok, headers: respHeaders, text: bodyText };
     }
 
     // Browser dev fallback

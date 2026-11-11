@@ -371,7 +371,10 @@
 
   function updateUnsavedFlag(dirty) {
     try {
-      global.Otzaria.call('ui.setUnsavedChanges', { hasUnsavedChanges: Boolean(dirty) });
+      global.Otzaria.call('ui.setUnsavedChanges', {
+        hasChanges: Boolean(dirty),
+        message: 'יש טיוטה שלא נשלחה בהערות הקהילה',
+      });
     } catch (_) {
       // ignore if unsupported
     }
