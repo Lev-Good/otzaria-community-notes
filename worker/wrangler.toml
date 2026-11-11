@@ -9,7 +9,7 @@ INVITE_REQUIRED = "true"
 ALLOW_BOOTSTRAP_ADMIN = "false"
 SYSTEM_NOTICE = ""
 AI_MODERATION_ENABLED = "false"
-BACKUP_REPO = ""
+BACKUP_REPO = "Lev-Good/otzaria-community-notes-backup"
 BACKUP_BRANCH = "main"
 
 # D1 database binding — החלף את database_id לאחר הרצת:
