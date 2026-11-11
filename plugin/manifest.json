@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "community-notes",
   "name": "הערות הקהילה",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "שכבה משותפת של הערות, שאלות ותשובות על דפי הספרייה באוצריא",
   "author": "קהילת אוצריא",
   "stability": "beta",
@@ -28,6 +28,7 @@
     "events.subscribe:reader.current_book_changed",
     "events.subscribe:reader.current_ref_changed",
     "events.subscribe:reader.sectionContentChanged",
+    "events.subscribe:reader.selection_changed",
     "events.subscribe:settings.changed",
     "events.subscribe:plugin.permissions_changed"
   ],

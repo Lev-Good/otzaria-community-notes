@@ -199,6 +199,7 @@ test('All plugin JS modules parse cleanly and register expected namespaces', () 
   const extraFiles = [
     'js/api.js',
     'js/highlights.js',
+    'js/menus.js',
     'js/ui-cards.js',
     'js/ui-composer.js',
     'js/ui-importer.js',
@@ -214,6 +215,7 @@ test('All plugin JS modules parse cleanly and register expected namespaces', () 
   }
   assert.ok(context.CN.api.request);
   assert.ok(context.CN.highlights.syncSectionHighlights);
+  assert.ok(context.CN.menus.syncMenusForSection);
   assert.ok(context.CN.cards.buildNoteCard);
   assert.ok(context.CN.composer.renderComposer);
   assert.ok(context.CN.importer.renderImportScreen);
@@ -394,4 +396,71 @@ test('Client split book pane visibility, anchor builder, and TOC/section loading
   assert.equal(context.CN.bookPane.state.toc.length, 1);
   assert.ok(context.CN.bookPane.state.sections[2]);
   assert.equal(context.CN.bookPane.state.sections[2].ref, 'פרק א פסוק 3');
+});
+
+test('Client dynamic context submenu & split toolbar builder (CN.menus)', async () => {
+  const { context } = loadPluginModules();
+  vm.runInContext(fs.readFileSync(path.join(pluginDir, 'js/menus.js'), 'utf8'), context, { filename: 'js/menus.js' });
+
+  const sampleNotes = [
+    { id: 'n-low', status: 'published', tier: 'low', kind: 'note', authorName: 'בדיקה', quote: 'יהי אור', body: 'לא צריך להופיע', upCount: 0 },
+    { id: 'n-hidden', status: 'hidden', tier: 'normal', kind: 'note', authorName: 'בדיקה', quote: 'יהי אור', body: 'מוסתר', upCount: 5 },
+    { id: 'n-other', status: 'published', tier: 'recommended', kind: 'note', authorName: 'רב א', quote: 'בראשית ברא', body: 'פירוש כללי על התחלת הפרשה', upCount: 20 },
+    { id: 'n-q', status: 'published', tier: 'normal', kind: 'question', authorName: 'שואל', quote: 'יהי אור', body: 'מדוע נכפל ויהי אור בפרשה זו ובמה מדובר באריכות רבה מאוד שצריכה קיצור בטקסט התפריט העמוס', upCount: 2 },
+    { id: 'n-match', status: 'published', tier: 'normal', kind: 'note', authorName: 'משה', quote: 'יְהִי אוֹר', body: 'ביאור ממוקד על הבחירה', upCount: 5 },
+  ];
+
+  const built = context.CN.menus.buildPreviewItems(sampleNotes, 'יהי אור');
+  assert.equal(built.totalCount, 3);
+  assert.equal(built.matchedCount, 2);
+  assert.equal(built.items.length, 3);
+  assert.ok(built.items[0].matched);
+  assert.ok(built.items[1].matched);
+  assert.equal(built.items[2].note.id, 'n-other');
+  assert.ok(built.items[0].label.startsWith('★ '));
+  assert.ok(built.items[1].label.startsWith('❓ '));
+  assert.ok(built.items[1].label.length <= 78);
+  assert.ok(built.items[1].label.endsWith('...'));
+
+  const calls = [];
+  let rejectedReaderBookOnce = false;
+  context.Otzaria.call = async (method, payload) => {
+    if (method === 'reader.addContextMenuItem' && Array.isArray(payload.contexts) && payload.contexts.includes('reader-book') && !rejectedReaderBookOnce) {
+      rejectedReaderBookOnce = true;
+      throw new Error('unsupported_context');
+    }
+    calls.push({ method, payload });
+    return { success: true };
+  };
+
+  await context.CN.menus.syncMenusForSection({
+    notes: sampleNotes,
+    selectedText: 'יהי אור',
+    permissions: ['reader.context_menu', 'reader.toolbar'],
+  });
+
+  const ctxCall = calls.find((c) => c.method === 'reader.addContextMenuItem');
+  assert.ok(ctxCall, 'expected context menu registration after fallback');
+  assert.deepEqual(Array.from(ctxCall.payload.contexts), ['reader-selection', 'reader-highlight']);
+  assert.equal(ctxCall.payload.type, 'submenu');
+  assert.ok(ctxCall.payload.title.includes('2 על הבחירה'));
+  assert.equal(ctxCall.payload.children[0].id, 'show-notes-open-all');
+  assert.equal(ctxCall.payload.children[1].type, 'separator');
+  assert.equal(ctxCall.payload.children[2].param.action, 'open-thread');
+  assert.equal(ctxCall.payload.children[2].param.rootId, 'n-match');
+
+  const tbCall = calls.find((c) => c.method === 'reader.addToolbarItem');
+  assert.ok(tbCall, 'expected toolbar registration');
+  assert.equal(tbCall.payload.type, 'split');
+  assert.equal(tbCall.payload.children[0].param.action, 'open-all');
+  assert.equal(tbCall.payload.children[1].param.action, 'open-thread');
+
+  calls.length = 0;
+  await context.CN.menus.syncMenusForSection({
+    notes: [],
+    selectedText: '',
+    permissions: ['reader.context_menu', 'reader.toolbar'],
+  });
+  assert.equal(calls.find((c) => c.method === 'reader.addContextMenuItem').payload.type, 'item');
+  assert.equal(calls.find((c) => c.method === 'reader.addToolbarItem').payload.type, 'button');
 });

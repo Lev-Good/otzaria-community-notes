@@ -83,6 +83,31 @@
         loadSectionNotes({ forceRefresh: false });
       }
     });
+    var fgSelectionTimer = null;
+    global.Otzaria.on('reader.selection_changed', function (ev) {
+      if (!CN.menus || !CN.menus.syncMenusForSection) return;
+      if (fgSelectionTimer) clearTimeout(fgSelectionTimer);
+      fgSelectionTimer = setTimeout(async function () {
+        try {
+          var selText = (ev && ev.text) || '';
+          var evBookId = (ev && ev.currentBookId) || '';
+          var evRef = (ev && ev.currentRef) || '';
+          var ctx = CN.state.context || {};
+          var notesForMenu = CN.state.sectionNotes || [];
+          if (evBookId && ctx.bookUid && (evBookId !== (ctx.bookId || ctx.titleHint) || evRef !== (ctx.ref || ''))) {
+            var cachedSel = await CN.storage.getCachedSectionNotes(ctx.bookUid, evRef);
+            if (cachedSel && Array.isArray(cachedSel.items)) {
+              notesForMenu = cachedSel.items;
+            }
+          }
+          await CN.menus.syncMenusForSection({
+            notes: notesForMenu,
+            selectedText: selText,
+            permissions: CN.state.permissions,
+          });
+        } catch (_) { /* ignore */ }
+      }, 120);
+    });
     global.Otzaria.on('plugin.resumed', function () {
       refreshInboxBadge();
     });
@@ -264,6 +289,11 @@
     };
     CN.state.sectionFocusOnly = false;
     await CN.storage.recordWorkedBook(CN.state.context.bookUid, bookTitle, CN.state.context.ref, CN.state.context.sectionIndex);
+    if (ev && ev.param && ev.param.action === 'open-thread' && ev.param.rootId) {
+      CN.state.screen = 'section';
+      openThread(ev.param.rootId, ev.param.noteId || ev.param.rootId);
+      return;
+    }
     navigate('section');
   }
 
@@ -301,8 +331,12 @@
 
     if (ev && ev.itemId === 'add-note') {
       openCreateComposer(anchor);
+    } else if (ev && ev.param && ev.param.action === 'open-thread' && ev.param.rootId) {
+      CN.state.sectionFocusOnly = false;
+      CN.state.screen = 'section';
+      openThread(ev.param.rootId, ev.param.noteId || ev.param.rootId);
     } else {
-      CN.state.sectionFocusOnly = Boolean(anchor.quote || clickedIds.length > 0);
+      CN.state.sectionFocusOnly = Boolean((anchor.quote || clickedIds.length > 0) && (!ev || !ev.param || ev.param.action !== 'open-all'));
       navigate('section');
     }
   }
@@ -538,6 +572,13 @@
       CN.state.sectionGroups = await CN.anchors.groupAndLocateNotes(cached.items, ctx.bookId || ctx.titleHint || ctx.bookUid);
       CN.state.sectionLoading = false;
       CN.state.sectionRefreshing = CN.state.isOnline !== false;
+      if (CN.menus && CN.menus.syncMenusForSection) {
+        CN.menus.syncMenusForSection({
+          notes: cached.items,
+          selectedText: (ctx.anchor && ctx.anchor.quote) || '',
+          permissions: CN.state.permissions,
+        });
+      }
       renderSectionScreen(document.getElementById('app-content'), { skipFetch: true });
     } else {
       CN.state.sectionLoading = true;
@@ -568,6 +609,13 @@
       CN.state.sectionCacheDate = Date.now();
       await CN.storage.putCachedSectionNotes(ctx.bookUid, ctx.ref, items);
       CN.state.sectionGroups = await CN.anchors.groupAndLocateNotes(items, ctx.bookId || ctx.titleHint || ctx.bookUid);
+      if (CN.menus && CN.menus.syncMenusForSection) {
+        CN.menus.syncMenusForSection({
+          notes: items,
+          selectedText: (ctx.anchor && ctx.anchor.quote) || '',
+          permissions: CN.state.permissions,
+        });
+      }
     } catch (_) {
       if (!cached) {
         CN.state.sectionError = 'לא הצלחנו לטעון';

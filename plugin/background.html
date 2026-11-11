@@ -11,6 +11,7 @@
   <script src="js/anchors.js"></script>
   <script src="js/api.js"></script>
   <script src="js/highlights.js"></script>
+  <script src="js/menus.js"></script>
 </head>
 <body>
   <script>
@@ -20,6 +21,11 @@
       var permissions = [];
       var settings = CN.storage.defaultSettings();
       var identity = null;
+      var lastBookUid = '';
+      var lastBookId = '';
+      var lastRef = '';
+      var lastNotes = [];
+      var bgSelectionTimer = null;
 
       function hasPerm(p) {
         return permissions.indexOf(p) !== -1;
@@ -98,8 +104,10 @@
         } catch (_) { /* ignore network errors in background */ }
       }
 
-      async function syncHighlightsForLocation(bookUid, bookId, ref) {
-        if (!settings.highlightEnabled || !hasPerm('reader.highlight') || !bookUid) return;
+      async function syncHighlightsForLocation(bookUid, bookId, ref, selectedText) {
+        var wantsHighlights = Boolean(settings.highlightEnabled && hasPerm('reader.highlight'));
+        var wantsMenus = Boolean(CN.menus && CN.menus.syncMenusForSection && (hasPerm('reader.context_menu') || hasPerm('reader.toolbar')));
+        if ((!wantsHighlights && !wantsMenus) || !bookUid) return;
         try {
           var conn = await Otzaria.call('app.getConnectivity');
           var isOnline = Boolean(conn && conn.success && conn.data && conn.data.isOnline !== false);
@@ -120,16 +128,32 @@
             var cached = await CN.storage.getCachedSectionNotes(bookUid, ref);
             notes = cached ? cached.items : [];
           }
-          if (notes && notes.length > 0) {
-            await CN.highlights.syncSectionHighlights({
-              notes: notes,
-              bookId: bookId || bookUid,
-              bookUid: bookUid,
-              theme: bootTheme,
-              settings: settings,
+
+          lastBookUid = bookUid;
+          lastBookId = bookId || bookUid;
+          lastRef = ref || '';
+          lastNotes = notes || [];
+
+          if (wantsMenus) {
+            await CN.menus.syncMenusForSection({
+              notes: lastNotes,
+              selectedText: selectedText || '',
+              permissions: permissions,
             });
-          } else {
-            await CN.highlights.clearPluginHighlights();
+          }
+
+          if (wantsHighlights) {
+            if (notes && notes.length > 0) {
+              await CN.highlights.syncSectionHighlights({
+                notes: notes,
+                bookId: bookId || bookUid,
+                bookUid: bookUid,
+                theme: bootTheme,
+                settings: settings,
+              });
+            } else {
+              await CN.highlights.clearPluginHighlights();
+            }
           }
         } catch (_) { /* ignore */ }
       }
@@ -151,6 +175,19 @@
         try {
           await checkInboxAndNotify();
           await CN.storage.set(CN.storage.KEYS.BG_CHECK_AT, Date.now());
+          var stRes = await Otzaria.call('reader.getCurrentState');
+          if (stRes && stRes.success && stRes.data && (stRes.data.bookUid || stRes.data.currentBookId || stRes.data.currentBook)) {
+            var stUid = stRes.data.bookUid
+              || (stRes.data.currentId != null ? 'id:' + stRes.data.currentId : '')
+              || stRes.data.currentBookId
+              || stRes.data.currentBook;
+            await syncHighlightsForLocation(
+              stUid,
+              stRes.data.currentBookId || stRes.data.currentBook || stUid,
+              stRes.data.currentRef || '',
+              ''
+            );
+          }
         } finally {
           // If woke solely for startup check without ref event, finish cleanly
           await Otzaria.call('plugin.backgroundDone');
@@ -172,21 +209,47 @@
           }
         }
 
-        // Sync inline highlights if permitted
-        if (ev && ev.currentBookId && settings.highlightEnabled && hasPerm('reader.highlight')) {
+        // Sync inline highlights and dynamic context/toolbar menus if permitted
+        if (ev && ev.currentBookId && ((settings.highlightEnabled && hasPerm('reader.highlight')) || hasPerm('reader.context_menu') || hasPerm('reader.toolbar'))) {
           var stateRes = await Otzaria.call('reader.getCurrentState');
           var bookUid = (stateRes && stateRes.success && stateRes.data && stateRes.data.bookUid) || ev.currentBookId;
-          await syncHighlightsForLocation(bookUid, ev.currentBookId, ev.currentRef || '');
+          await syncHighlightsForLocation(bookUid, ev.currentBookId, ev.currentRef || '', '');
         }
       });
 
       Otzaria.on('reader.sectionContentChanged', async function (ev) {
         if (!ev || ev.changeType !== 'source-content') return;
-        if (!hasPerm('app.run_on_startup') || !hasPerm('reader.highlight')) return;
+        if (!hasPerm('app.run_on_startup')) return;
+        if (!hasPerm('reader.highlight') && !hasPerm('reader.context_menu') && !hasPerm('reader.toolbar')) return;
         var cur = await Otzaria.call('reader.getCurrentRef');
         if (cur && cur.success && cur.data) {
-          await syncHighlightsForLocation(cur.data.bookUid || cur.data.currentBookId, cur.data.currentBookId, cur.data.currentRef || '');
+          await syncHighlightsForLocation(cur.data.bookUid || cur.data.currentBookId, cur.data.currentBookId, cur.data.currentRef || '', '');
         }
+      });
+
+      Otzaria.on('reader.selection_changed', function (ev) {
+        if (!hasPerm('app.run_on_startup')) return;
+        if (!CN.menus || !CN.menus.syncMenusForSection) return;
+        if (!hasPerm('reader.context_menu') && !hasPerm('reader.toolbar')) return;
+        if (bgSelectionTimer) clearTimeout(bgSelectionTimer);
+        bgSelectionTimer = setTimeout(async function () {
+          try {
+            var evBookId = (ev && ev.currentBookId) || '';
+            var evRef = (ev && ev.currentRef) || '';
+            var selText = (ev && ev.text) || '';
+            if (evBookId && (evBookId !== lastBookId || evRef !== lastRef)) {
+              var stateRes = await Otzaria.call('reader.getCurrentState');
+              var bUid = (stateRes && stateRes.success && stateRes.data && stateRes.data.bookUid) || evBookId;
+              await syncHighlightsForLocation(bUid, evBookId, evRef, selText);
+            } else if (lastBookUid) {
+              await CN.menus.syncMenusForSection({
+                notes: lastNotes,
+                selectedText: selText,
+                permissions: permissions,
+              });
+            }
+          } catch (_) { /* ignore */ }
+        }, 120);
       });
     })();
   </script>
