@@ -385,7 +385,7 @@
               ok = Boolean(c && c.success && c.data === true);
             } catch (_) { /* ok */ }
             if (ok) {
-              CN.ui.openReasonModal('קוד השחזור שלך: ' + (CN.state.identity.recoveryCode || 'לא זמין במכשיר זה'), [], function () {});
+              openRecoveryDisplayModal(CN.state.identity.recoveryCode || 'לא זמין במכשיר זה');
             }
           },
         }),
@@ -440,6 +440,22 @@
         }),
       ]));
     }
+
+    accBody.appendChild(el('div', { className: 'settings-row' }, [
+      el('div', {}, [
+        el('div', { className: 'settings-row-title', text: 'ייבוא מהערות אישיות' }),
+        el('div', { className: 'settings-row-subtitle', text: 'מעבר מהיר על כל ההערות שלך באוצריא ובחירת אילו להעלות לקהילה' }),
+      ]),
+      el('button', {
+        type: 'button',
+        className: 'btn-secondary',
+        text: 'פתח ייבוא',
+        onClick: function () {
+          closeSettingsPanel();
+          CN.app.navigate('import');
+        },
+      }),
+    ]));
 
     accBody.appendChild(el('div', { className: 'settings-row' }, [
       el('div', {}, [
@@ -597,6 +613,38 @@
         CN.ui.showToast('שגיאה במחיקת החשבון');
       }
     });
+  }
+
+  function openRecoveryDisplayModal(code) {
+    var el = CN.ui.el;
+    var modal = document.getElementById('modal-backdrop');
+    var box = document.getElementById('modal-dialog');
+    if (!modal || !box) return;
+    box.textContent = '';
+    box.appendChild(el('h3', { text: 'קוד השחזור שלך' }));
+    box.appendChild(el('div', { className: 'recovery-code-box', text: code }));
+    box.appendChild(el('div', { className: 'card-actions-group' }, [
+      el('button', {
+        type: 'button',
+        className: 'btn-primary',
+        text: 'העתק קוד',
+        onClick: async function () {
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(code);
+              CN.ui.showToast('קוד השחזור הועתק');
+            }
+          } catch (_) { /* ignore */ }
+        },
+      }),
+      el('button', {
+        type: 'button',
+        className: 'btn-secondary',
+        text: CN.ui.t('סגור'),
+        onClick: function () { modal.classList.remove('open'); },
+      }),
+    ]));
+    modal.classList.add('open');
   }
 
   CN.settingsUi = {

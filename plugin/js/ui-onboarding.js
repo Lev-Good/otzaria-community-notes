@@ -67,8 +67,9 @@
         nameInput.addEventListener('input', function () {
           nextBtn.disabled = true;
           var val = nameInput.value.trim();
-          if (val.length < 3) {
-            availMsg.textContent = 'לפחות 3 תווים';
+          var strippedLen = CN.filter.normalizeText(val).replace(/[^א-תa-z0-9]/g, '').length;
+          if (val.length < 3 || strippedLen < 3) {
+            availMsg.textContent = 'לפחות 3 אותיות או ספרות';
             availMsg.className = 'validation-hint error';
             return;
           }

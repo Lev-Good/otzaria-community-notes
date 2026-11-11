@@ -237,6 +237,11 @@ a:focus-visible {
   text-align: start;
   padding: 4px 6px;
   border-radius: var(--radius);
+  min-width: 0;
+  max-width: 55%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .context-ref-btn:hover {
@@ -451,6 +456,12 @@ a:focus-visible {
 .quote-group.highlight-focus {
   border-color: var(--color-primary);
   background: var(--color-primary-subtle);
+  animation: cnFocusPulse 1.4s ease-out;
+}
+
+@keyframes cnFocusPulse {
+  0% { box-shadow: 0 0 0 3px var(--color-primary); }
+  100% { box-shadow: none; }
 }
 
 .quote-group-header {
@@ -883,7 +894,7 @@ body.density-compact .card {
   position: fixed;
   top: 10px;
   bottom: 12px;
-  inset-inline-start: 10px;
+  inset-inline-end: 10px;
   width: min(440px, 94vw);
   background: var(--color-surface-container-high);
   color: var(--color-on-surface);
@@ -897,6 +908,10 @@ body.density-compact .card {
   transform: translateX(-24px);
   pointer-events: none;
   transition: opacity 0.2s, transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[dir="ltr"] .overlay-panel {
+  transform: translateX(24px);
 }
 
 .overlay-panel.open {
@@ -917,6 +932,8 @@ body.density-compact .card {
 }
 
 .panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 8px 14px 20px;
   display: flex;
@@ -925,6 +942,7 @@ body.density-compact .card {
 }
 
 .settings-card {
+  flex: 0 0 auto;
   background: var(--surface-card);
   border-radius: var(--radius);
   border: 1px solid var(--color-outline-variant);
@@ -947,6 +965,21 @@ body.density-compact .card {
   border-top: 1px solid var(--color-surface-container-highest);
 }
 
+.settings-row > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-row .card-actions-group {
+  width: 100%;
+}
+
+.settings-row .card-actions-group .input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
 .settings-row.stacked {
   flex-direction: column;
   align-items: stretch;
@@ -966,6 +999,9 @@ body.density-compact .card {
 .segmented {
   display: inline-flex;
   flex-wrap: wrap;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
   border: 1px solid var(--color-outline);
   border-radius: var(--radius);
   overflow: hidden;
@@ -1007,7 +1043,7 @@ body.density-compact .card {
   content: '';
   position: absolute;
   top: 2px;
-  inset-inline-end: 2px;
+  inset-inline-start: 2px;
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -1032,6 +1068,105 @@ html[dir="ltr"] .switch[aria-checked="true"]::after {
 .switch:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ── Batch Personal Notes Importer ───────────────────── */
+
+.importer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--color-surface-container-low);
+  border: 1px solid var(--color-outline-variant);
+}
+
+.importer-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--color-surface-container);
+  border: 1px solid var(--color-primary);
+}
+
+.importer-progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-highest);
+  overflow: hidden;
+}
+
+.importer-progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.2s;
+}
+
+.importer-item {
+  background: var(--surface-card);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.importer-item.selected {
+  border-color: var(--color-primary);
+}
+
+.importer-item.uploaded {
+  background: var(--color-surface-container-low);
+  opacity: 0.85;
+}
+
+.importer-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.importer-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.importer-check-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.importer-source-preview {
+  padding: 6px 10px;
+  border-inline-start: 2px solid var(--color-outline-variant);
+  background: var(--color-surface-container-low);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-main);
+  font-size: 0.92rem;
+  color: var(--color-on-surface-variant);
+}
+
+.importer-textarea {
+  min-height: 76px;
+  resize: vertical;
+  line-height: 1.5;
 }
 
 /* ── Modal Dialogs & Toast ───────────────────────────── */

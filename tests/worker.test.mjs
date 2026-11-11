@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { D1SqliteAdapter } from './d1-sqlite-adapter.mjs';
 import { handleRequest } from '../worker/src/index.js';
 import { wilsonLowerBound, computeTier } from '../worker/src/ranking.js';
-import { normalizeForDictionary, evaluateContent } from '../worker/src/moderation.js';
+import { normalizeForDictionary, evaluateContent, validateDisplayName } from '../worker/src/moderation.js';
 import { buildPublicBackupSnapshot, restoreBookBackupSnapshot } from '../worker/src/backup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -122,6 +122,14 @@ test('Hebrew normalization, quote-context mitigation, and structural rules', () 
   // Context mitigation: term present in quote lowers severity to soft flag (pending)
   const mitigated = evaluateContent('פירוש המילה מטומטם בפסוק זה מבואר ברש״י', 'אמר רבי פלוני מטומטם');
   assert.equal(mitigated.action, 'pending');
+
+  // Sensitive Torah/halachic debate terms route to pending review
+  assert.equal(evaluateContent('הסוגיה דנה בדעת מינות ועבודה זרה בספר').action, 'pending');
+
+  // Display name rejects padded nikud/punctuation shorter than 3 base characters
+  assert.equal(validateDisplayName('א\u05B8\u05BCב').ok, false);
+  assert.equal(validateDisplayName('דן').ok, false);
+  assert.equal(validateDisplayName('לומד תורה').ok, true);
 });
 
 test('Wilson 95% lower bound and tier thresholds', () => {

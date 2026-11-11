@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "community-notes",
   "name": "הערות הקהילה",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "שכבה משותפת של הערות, שאלות ותשובות על דפי הספרייה באוצריא",
   "author": "קהילת אוצריא",
   "stability": "beta",

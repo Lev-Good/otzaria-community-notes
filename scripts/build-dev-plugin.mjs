@@ -37,7 +37,7 @@ copyDir(srcPlugin, outDevDir);
 // Patch manifest.json & config.js in dist/dev-plugin for local 127.0.0.1:8787 testing
 const manifestPath = path.join(outDevDir, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-manifest.version = '0.2.1';
+manifest.version = '0.3.1';
 manifest.permissions = manifest.permissions.map((p) => (p === 'network.access' ? 'network.localhost' : p));
 manifest.network = { enabled: true, allowlist: ['http://127.0.0.1:8787'] };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');

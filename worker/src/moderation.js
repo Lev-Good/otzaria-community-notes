@@ -122,6 +122,9 @@ const RAW_SOFT_TERMS = [
   ['כופר', 'מונח רגיש לבדיקה'],
   ['עבודה זרה', 'מונח רגיש לבדיקה'],
   ['נוצרי', 'מונח רגיש לבדיקה'],
+  ['כפירה', 'מונח רגיש לבדיקה'],
+  ['מינות', 'מונח רגיש לבדיקה'],
+  ['מיסיון', 'מונח רגיש לבדיקה'],
   ['פוליטיקה', 'נושא שעלול להיות חוץ-תורני'],
   ['בחירות', 'נושא שעלול להיות חוץ-תורני'],
   ['ממשלה', 'נושא שעלול להיות חוץ-תורני'],
@@ -150,7 +153,8 @@ const RESERVED_TITLES_NORMALIZED = new Set(
  */
 export function validateDisplayName(rawName, { allowTitles = false } = {}) {
   const name = String(rawName || '').trim();
-  if (name.length < 3 || name.length > 20) {
+  const strippedLen = normalizeForDictionary(name).replace(/[^א-תa-z0-9]/g, '').length;
+  if (name.length < 3 || name.length > 20 || strippedLen < 3) {
     return { ok: false, code: 'INVALID_NAME_LENGTH', message: 'שם התצוגה חייב להכיל 3 עד 20 תווים' };
   }
   if (HTML_TAG_RE.test(name) || /[\r\n\t]/.test(name)) {

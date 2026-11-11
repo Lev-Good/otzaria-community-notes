@@ -57,6 +57,20 @@
         m.classList.remove('open');
       });
     });
+
+    // Escape closes active modal or settings overlay drawer
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Escape') return;
+      var modal = document.getElementById('modal-backdrop');
+      if (modal && modal.classList.contains('open')) {
+        modal.classList.remove('open');
+        return;
+      }
+      var panel = document.getElementById('settings-panel');
+      if (panel && panel.classList.contains('open')) {
+        CN.settingsUi.closeSettingsPanel();
+      }
+    });
   }
 
   async function onBoot(payload) {
@@ -86,20 +100,37 @@
     // Check connectivity without blocking initial UI
     refreshConnectivityAndConfig();
 
-    // Restore last known book context if opened from tools panel
-    var lastLoc = await CN.storage.get(CN.storage.KEYS.LAST_LOCATION, null);
-    if (lastLoc && lastLoc.bookUid) {
-      CN.state.context.bookUid = lastLoc.bookUid;
-      CN.state.context.titleHint = lastLoc.titleHint || lastLoc.bookUid;
-      CN.state.context.bookId = lastLoc.titleHint || lastLoc.bookUid;
-      CN.state.context.ref = lastLoc.ref || '';
-      CN.state.context.sectionIndex = lastLoc.sectionIndex || 0;
+    // Restore currently active open book tab or last known book context
+    if (!CN.state.cameFromReader) {
+      try {
+        var curSt = await global.Otzaria.call('reader.getCurrentState');
+        if (curSt && curSt.success && curSt.data && (curSt.data.bookUid || curSt.data.currentBook || curSt.data.currentId != null)) {
+          var d = curSt.data;
+          CN.state.context.bookUid = d.bookUid || (d.currentId != null ? 'id:' + d.currentId : (d.currentBook || d.currentBookId || ''));
+          CN.state.context.titleHint = d.currentBook || d.bookUid || '';
+          CN.state.context.bookId = d.currentBookId || d.currentBook || CN.state.context.bookUid;
+          CN.state.context.ref = d.currentRef || '';
+          CN.state.context.sectionIndex = typeof d.currentIndex === 'number' ? d.currentIndex : 0;
+          CN.state.isPdf = d.currentType === 'pdf';
+        }
+      } catch (_) { /* ignore */ }
+    }
+
+    if (!CN.state.context.bookUid) {
+      var lastLoc = await CN.storage.get(CN.storage.KEYS.LAST_LOCATION, null);
+      if (lastLoc && lastLoc.bookUid) {
+        CN.state.context.bookUid = lastLoc.bookUid;
+        CN.state.context.titleHint = lastLoc.titleHint || lastLoc.bookUid;
+        CN.state.context.bookId = lastLoc.titleHint || lastLoc.bookUid;
+        CN.state.context.ref = lastLoc.ref || '';
+        CN.state.context.sectionIndex = lastLoc.sectionIndex || 0;
+      }
     }
 
     // Decide initial screen if not already directed by an entry click event
     var start = CN.state.settings.startScreen || 'section';
     if (!CN.state.cameFromReader) {
-      CN.state.screen = (start === 'section' && !CN.state.context.bookUid) ? 'home' : (start === 'section' ? 'home' : start);
+      CN.state.screen = (start === 'section' && !CN.state.context.bookUid) ? 'home' : start;
     }
 
     renderChrome();
@@ -337,7 +368,7 @@
     var strip = document.getElementById('context-strip');
     if (strip) {
       strip.textContent = '';
-      if (!ctx.bookUid || CN.state.screen === 'home' || CN.state.screen === 'questions' || CN.state.screen === 'mine' || CN.state.screen === 'messages') {
+      if (!ctx.bookUid || CN.state.screen === 'home' || CN.state.screen === 'questions' || CN.state.screen === 'mine' || CN.state.screen === 'messages' || CN.state.screen === 'import') {
         strip.classList.add('hidden');
       } else {
         strip.classList.remove('hidden');
@@ -380,9 +411,10 @@
       if (isMod) tabs.push(['mod', t('מודרציה')]);
 
       tabs.forEach(function (pair) {
+        var isActive = CN.state.screen === pair[0] || (CN.state.screen === 'import' && pair[0] === 'mine');
         var btn = el('button', {
           type: 'button',
-          className: 'nav-tab' + (CN.state.screen === pair[0] ? ' active' : ''),
+          className: 'nav-tab' + (isActive ? ' active' : ''),
           text: pair[1],
           onClick: function () { navigate(pair[0]); },
         });
@@ -417,6 +449,7 @@
     else if (scr === 'home') renderHomeScreen(main);
     else if (scr === 'thread') renderThreadScreen(main);
     else if (scr === 'compose') CN.composer.renderComposer(main);
+    else if (scr === 'import') CN.importer.renderImportScreen(main);
     else if (scr === 'mod') CN.modUi.renderModPanel(main);
   }
 
@@ -650,15 +683,23 @@
 
       var groupHeader = el('div', { className: 'quote-group-header' }, [labelNode]);
       if (grp.type === 'quote' && !isFullQuote && headLabel.length > 55) {
-        groupHeader.appendChild(el('button', {
-          type: 'button',
-          className: 'link-btn',
-          text: t('עוד'),
-          onClick: function (ev) {
-            var clamped = labelNode.classList.toggle('clamped');
-            ev.target.textContent = clamped ? t('עוד') : t('פחות');
-          },
-        }));
+        (function (lblNode) {
+          var expandBtn = el('button', {
+            type: 'button',
+            className: 'link-btn',
+            text: t('עוד'),
+            onClick: function () {
+              var clamped = lblNode.classList.toggle('clamped');
+              expandBtn.textContent = clamped ? t('עוד') : t('פחות');
+            },
+          });
+          lblNode.style.cursor = 'pointer';
+          lblNode.addEventListener('click', function () {
+            var clamped = lblNode.classList.toggle('clamped');
+            expandBtn.textContent = clamped ? t('עוד') : t('פחות');
+          });
+          groupHeader.appendChild(expandBtn);
+        })(labelNode);
       }
       groupEl.appendChild(groupHeader);
 
@@ -807,7 +848,15 @@
     container.textContent = '';
     var wrap = el('div', { className: 'container-narrow' });
 
-    wrap.appendChild(el('h2', { className: 'section-heading', text: t('שלי') }));
+    wrap.appendChild(el('div', { className: 'section-header' }, [
+      el('h2', { className: 'section-heading', text: t('שלי') }),
+      el('button', {
+        type: 'button',
+        className: 'btn-secondary',
+        text: t('ייבוא מהערות אישיות'),
+        onClick: function () { navigate('import'); },
+      }),
+    ]));
 
     var filters = el('div', { className: 'chip-group' });
     [
@@ -892,9 +941,26 @@
     }
 
     if (wrap.children.length <= 2) {
-      wrap.appendChild(el('div', { className: 'empty-state', text: 'עדיין אין כאן רשומות' }));
+      wrap.appendChild(el('div', { className: 'empty-state' }, [
+        el('p', { text: 'עדיין אין כאן רשומות' }),
+        el('button', {
+          type: 'button',
+          className: 'btn-primary',
+          text: t('ייבוא מהערות אישיות'),
+          onClick: function () { navigate('import'); },
+        }),
+      ]));
     }
     container.appendChild(wrap);
+  }
+
+  function formatDayLabel(ts) {
+    var d = new Date(ts);
+    var today = new Date();
+    var yesterday = new Date(Date.now() - 86400000);
+    if (d.toDateString() === today.toDateString()) return 'היום';
+    if (d.toDateString() === yesterday.toDateString()) return 'אתמול';
+    return d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
   }
 
   async function renderMessagesScreen(container) {
@@ -948,7 +1014,7 @@
       } else {
         var lastDay = '';
         items.forEach(function (msg) {
-          var dayStr = new Date(msg.createdAt).toLocaleDateString('he-IL');
+          var dayStr = formatDayLabel(msg.createdAt);
           if (dayStr !== lastDay) {
             lastDay = dayStr;
             wrap.appendChild(el('div', { className: 'meta-time', text: dayStr }));
@@ -964,13 +1030,20 @@
                   bodyObj: { seqs: [msg.seq] },
                 });
               }
-              openThread(msg.rootId, msg.noteId);
+              if (msg.type === 'moderation_rejected' || msg.type === 'rejected' || !msg.rootId) {
+                navigate('mine');
+              } else {
+                openThread(msg.rootId, msg.noteId);
+              }
             },
           }, [
             el('div', { className: 'card-header' }, [
               el('span', { className: 'author-name', text: (!msg.readAt ? '● ' : '') + (msg.summary || msg.actorName) }),
               el('span', { className: 'meta-time', text: CN.ui.formatRelativeTime(msg.createdAt) }),
             ]),
+            (msg.reason || msg.preview)
+              ? el('div', { className: 'meta-time', text: msg.reason || msg.preview })
+              : null,
           ]);
           wrap.appendChild(card);
         });

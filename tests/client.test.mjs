@@ -183,6 +183,7 @@ test('All plugin JS modules parse cleanly and register expected namespaces', () 
     'js/highlights.js',
     'js/ui-cards.js',
     'js/ui-composer.js',
+    'js/ui-importer.js',
     'js/ui-onboarding.js',
     'js/ui-settings.js',
     'js/ui-mod.js',
@@ -196,8 +197,105 @@ test('All plugin JS modules parse cleanly and register expected namespaces', () 
   assert.ok(context.CN.highlights.syncSectionHighlights);
   assert.ok(context.CN.cards.buildNoteCard);
   assert.ok(context.CN.composer.renderComposer);
+  assert.ok(context.CN.importer.renderImportScreen);
   assert.ok(context.CN.onboarding.ensureRegistered);
   assert.ok(context.CN.settingsUi.openSettingsPanel);
   assert.ok(context.CN.modUi.renderModPanel);
   assert.ok(context.CN.app.navigate);
+});
+
+test('Client Settings panel & RTL CSS layout invariants prevent clipping and toggle cutoff', () => {
+  const css = fs.readFileSync(path.join(pluginDir, 'css/style.css'), 'utf8');
+  assert.match(css, /\.overlay-panel\s*\{[^}]*inset-inline-end:\s*10px/s);
+  assert.match(css, /\.panel-body\s*\{[^}]*min-height:\s*0/s);
+  assert.match(css, /\.settings-card\s*\{[^}]*flex:\s*0\s+0\s+auto/s);
+  assert.match(css, /\.segmented\s*\{[^}]*align-self:\s*flex-start/s);
+  assert.match(css, /\.switch::after\s*\{[^}]*inset-inline-start:\s*2px/s);
+});
+
+test('Client batch personal notes importer discovers notes, resolves bookUid & ref, deduplicates, and batch-uploads', async () => {
+  const { context, storageMap } = loadPluginModules({
+    navigator: { onLine: true },
+    setInterval() { return 1; },
+    clearInterval() {},
+  });
+  for (const f of ['js/api.js', 'js/highlights.js', 'js/ui-importer.js', 'js/ui-onboarding.js']) {
+    vm.runInContext(fs.readFileSync(path.join(pluginDir, f), 'utf8'), context, { filename: f });
+  }
+
+  const postedPayloads = [];
+  context.CN.state.identity = { userId: 'u1', displayName: 'בודק', privateJwk: { kty: 'EC' } };
+  context.CN.state.isOnline = true;
+  context.CN.onboarding.ensureRegistered = async () => true;
+
+  // Mock Otzaria calls for personal notes + library lookup + section text map
+  const origCall = context.Otzaria.call;
+  context.Otzaria.call = async (method, payload) => {
+    if (method === 'notes.getBookNotesSummary') {
+      return { success: true, data: [{ bookId: 'בראשית', noteCount: 3, lastModified: '2026-11-11T10:00:00Z' }] };
+    }
+    if (method === 'library.findBooks') {
+      return { success: true, data: [{ id: 183, bookId: 'בראשית', title: 'בראשית' }] };
+    }
+    if (method === 'notes.list' && payload.bookId === 'בראשית') {
+      return {
+        success: true,
+        data: [
+          { id: 'pn1', lineNumber: 1, content: 'הערה מפורטת מאוד על פסוק ב בפרשת בראשית', contentPlain: 'הערה מפורטת מאוד על פסוק ב בפרשת בראשית' },
+          { id: 'pn2', lineNumber: 2, content: 'קצר', contentPlain: 'קצר' },
+          { id: 'pn3', lineNumber: 3, content: 'הערה שכבר קיימת בחשבון הקהילתי בשרת', contentPlain: 'הערה שכבר קיימת בחשבון הקהילתי בשרת' },
+        ],
+      };
+    }
+    if (method === 'reader.getSectionTextMap') {
+      return { success: true, data: { currentRef: 'פרק א פסוק ב', sourceText: 'והארץ היתה תוהו ובוהו וחשך על פני תהום' } };
+    }
+    return origCall(method, payload);
+  };
+
+  context.CN.api.fetchSolvedChallenge = async () => ({ challengeToken: 'tok', challengeNonce: '1' });
+  context.CN.api.request = async (method, pathWithQ, opts) => {
+    if (method === 'GET' && pathWithQ === '/v1/me/notes') {
+      return {
+        ok: true,
+        status: 200,
+        data: { items: [{ id: 'srv1', bookUid: 'id:183', status: 'published', body: 'הערה שכבר קיימת בחשבון הקהילתי בשרת' }] },
+      };
+    }
+    if (method === 'POST' && pathWithQ === '/v1/notes') {
+      postedPayloads.push(opts.bodyObj);
+      return {
+        ok: true,
+        status: 201,
+        data: { note: { id: 'new_srv_' + postedPayloads.length, status: 'published' } },
+      };
+    }
+    return { ok: false, status: 404, data: null };
+  };
+
+  const cat = await context.CN.importer.loadPersonalNotesCatalog({ force: true });
+  assert.equal(cat.items.length, 3);
+
+  const pn1 = cat.items.find((i) => i.personalId === 'pn1');
+  const pn2 = cat.items.find((i) => i.personalId === 'pn2');
+  const pn3 = cat.items.find((i) => i.personalId === 'pn3');
+
+  assert.equal(pn1.bookUid, 'id:183');
+  assert.equal(pn1.selected, true); // valid and not uploaded yet
+  assert.equal(pn2.selected, false); // too short (<10 chars)
+  assert.equal(pn3.alreadyUploaded, true);
+  assert.equal(pn3.selected, false); // deduplicated against /v1/me/notes
+
+  pn1.attachQuote = true;
+  const summary = await context.CN.importer.uploadSelectedNotes(cat.items);
+  assert.equal(summary.uploaded, 1);
+  assert.equal(summary.published, 1);
+  assert.equal(postedPayloads.length, 1);
+  assert.equal(postedPayloads[0].bookUid, 'id:183');
+  assert.equal(postedPayloads[0].ref, 'פרק א פסוק ב');
+  assert.equal(postedPayloads[0].sectionHint, 1);
+  assert.ok(postedPayloads[0].quote.includes('והארץ היתה תוהו'));
+
+  const uploadedMap = storageMap.get('import:uploaded:v1');
+  assert.ok(uploadedMap['בראשית::pn1']);
 });

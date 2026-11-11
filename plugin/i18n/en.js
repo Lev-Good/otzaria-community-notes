@@ -73,4 +73,9 @@ window.TRANSLATIONS.en = {
   'יש לך {n} הודעות חדשות בהערות הקהילה': 'You have {n} new messages in Community Notes',
   'סגור': 'Close',
   'שמור': 'Save',
+  'חזרה': 'Back',
+  'חזרה לשלי': 'Back to Mine',
+  'ייבוא מהערות אישיות': 'Import personal notes',
+  'רענן רשימה': 'Refresh list',
+  'פרסם נבחרות': 'Publish selected',
 };
