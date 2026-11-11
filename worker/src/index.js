@@ -25,14 +25,8 @@ import {
   handleUpdateNote,
   handleVoteNote,
 } from './routes/notes.js';
-import {
-  handleCreateInvite,
-  handleGetModLog,
-  handleGetModQueue,
-  handleModDecide,
-  handleModReanchor,
-} from './routes/mod.js';
-import { runDailyMaintenanceAndBackup } from './backup.js';
+import { handleCreateInvite, handleGetModLog, handleGetModQueue, handleModDecide, handleModReanchor } from './routes/mod.js';
+import { buildPublicBackupSnapshot, runDailyMaintenanceAndBackup } from './backup.js';
 
 export async function handleRequest(request, env) {
   if (request.method === 'OPTIONS') {
@@ -143,6 +137,21 @@ export async function handleRequest(request, env) {
     if (method === 'POST' && path === '/v1/mod/invites') {
       const raw = await readBodyText(request);
       return handleCreateInvite(request, env, raw);
+    }
+
+    if (method === 'GET' && path === '/v1/backup/public') {
+      const byBook = await buildPublicBackupSnapshot(env);
+      const books = {};
+      for (const [bookUid, snapshot] of byBook.entries()) {
+        books[bookUid] = snapshot;
+      }
+      return jsonResponse({
+        schemaVersion: 1,
+        license: 'CC BY-SA 4.0',
+        generatedAt: new Date().toISOString(),
+        bookCount: Object.keys(books).length,
+        books,
+      });
     }
 
     if (method === 'GET' && path === '/') {

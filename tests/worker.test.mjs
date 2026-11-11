@@ -366,6 +366,10 @@ test('End-to-end Worker API flow: registration, ECDSA seq, notes, Q&A, votes, re
     assert.equal(restored.restored, bookSnap.records.length);
     freshDb.close();
 
+    const pubBackup = await anon.call('GET', '/v1/backup/public');
+    assert.equal(pubBackup.status, 200);
+    assert.ok(pubBackup.data.books['id:183']);
+
     // 10. Account deletion (anonymize)
     const delRes = await aliceDevice2.call('DELETE', '/v1/me', { mode: 'anonymize' }, { auth: true });
     assert.equal(delRes.status, 200);
