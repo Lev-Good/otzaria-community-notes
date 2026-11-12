@@ -5,9 +5,18 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function sanitizeBookFilename(bookUid) {
-  return String(bookUid || 'unknown')
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .slice(0, 120);
+  const raw = String(bookUid || 'unknown');
+  let h = 2166136261;
+  for (let i = 0; i < raw.length; i++) {
+    h ^= raw.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  const slug = raw
+    .replace(/[^\u0590-\u05FFa-zA-Z0-9._-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 80);
+  return `${slug || 'book'}-${h.toString(16).padStart(8, '0')}`;
 }
 
 /**

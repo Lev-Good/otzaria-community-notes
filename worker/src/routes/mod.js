@@ -15,7 +15,7 @@ async function requireModAuth(request, env, rawBody, { requireSeq = false } = {}
 
 export async function handleGetModQueue(request, env) {
   const auth = await requireModAuth(request, env, '', { requireSeq: false });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
 
   // Queue ordered by risk_score DESC, then created_at ASC (oldest highest-risk first)
   const { results } = await env.DB.prepare(`
@@ -85,7 +85,7 @@ export async function handleGetModQueue(request, env) {
 
 export async function handleGetModLog(request, env) {
   const auth = await requireModAuth(request, env, '', { requireSeq: false });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
 
   const { results } = await env.DB.prepare(`
     SELECT m.*, u.display_name AS actor_name
@@ -100,7 +100,7 @@ export async function handleGetModLog(request, env) {
 
 export async function handleModDecide(request, env, rawBody) {
   const auth = await requireModAuth(request, env, rawBody, { requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user: mod } = auth;
   const now = Date.now();
 
@@ -198,10 +198,21 @@ export async function handleModDecide(request, env, rawBody) {
     await env.DB.prepare('UPDATE users SET banned_until = ?, ban_reason = ? WHERE id = ?')
       .bind(until, cleanReason, note.author_id)
       .run();
-    await env.DB.prepare(`UPDATE notes SET status = 'hidden', moderation_reason = ? WHERE id = ?`)
-      .bind(cleanReason, noteId)
-      .run();
+    await env.DB.prepare(`
+      UPDATE notes
+      SET status = 'hidden',
+          moderation_reason = ?,
+          appeal_status = CASE WHEN appeal_status = 'pending' THEN 'reviewed' ELSE appeal_status END
+      WHERE id = ?
+    `).bind(cleanReason, noteId).run();
+    await env.DB.prepare(`
+      UPDATE reports SET resolved_by = ?, resolution = 'upheld', resolved_at = ?
+      WHERE note_id = ? AND resolved_by IS NULL
+    `).bind(mod.id, now, noteId).run();
+    await demoteOnUpheldReport(env, note.author_id);
     await bumpBookVersion(env, note.book_uid, now);
+    inboxType = 'mod_hidden';
+    inboxSummary = `הערתך ב${note.title_hint || note.book_uid} ${note.ref} הוסתרה וחשבונך הוגבל מכתיבה: ${cleanReason}`;
   }
 
   if (inboxType) {
@@ -224,7 +235,7 @@ export async function handleModDecide(request, env, rawBody) {
  */
 export async function handleModReanchor(request, env, rawBody) {
   const auth = await requireModAuth(request, env, rawBody, { requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user: mod } = auth;
   const now = Date.now();
 
@@ -269,7 +280,7 @@ export async function handleCreateInvite(request, env, rawBody) {
     actorId = 'bootstrap-admin';
   } else {
     const auth = await requireModAuth(request, env, rawBody, { requireSeq: true });
-    if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+    if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
     actorId = auth.user.id;
   }
 

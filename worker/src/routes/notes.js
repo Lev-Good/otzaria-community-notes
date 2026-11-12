@@ -210,12 +210,25 @@ export async function handleGetThread(request, env, rootId) {
   const auth = await authenticateRequest(request, env, '', { required: false, requireSeq: false });
   const viewerId = auth.ok && auth.user ? auth.user.id : null;
 
-  const root = await env.DB.prepare(`
+  let root = await env.DB.prepare(`
     SELECT n.*, u.display_name AS author_name, u.role AS author_role
     FROM notes n
     LEFT JOIN users u ON u.id = n.author_id
     WHERE n.id = ?
   `).bind(rootId).first();
+
+  if (root && root.root_id) {
+    const parentRoot = await env.DB.prepare(`
+      SELECT n.*, u.display_name AS author_name, u.role AS author_role
+      FROM notes n
+      LEFT JOIN users u ON u.id = n.author_id
+      WHERE n.id = ?
+    `).bind(root.root_id).first();
+    if (parentRoot) {
+      root = parentRoot;
+      rootId = parentRoot.id;
+    }
+  }
 
   if (!root) {
     return errorResponse(404, 'NOT_FOUND', 'הרשומה לא נמצאה');
@@ -278,7 +291,7 @@ export async function handleCreateNote(request, env, rawBody) {
   }
 
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   let { user } = auth;
   const now = Date.now();
 
@@ -459,7 +472,7 @@ export async function handleUpdateNote(request, env, noteId, rawBody) {
     return errorResponse(503, 'WRITES_DISABLED', 'הכתיבה מושבתת זמנית. הקריאה פעילה');
   }
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
   const now = Date.now();
 
@@ -529,7 +542,7 @@ export async function handleUpdateNote(request, env, noteId, rawBody) {
 
 export async function handleDeleteNote(request, env, noteId, rawBody) {
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
   const now = Date.now();
 
@@ -557,13 +570,21 @@ export async function handleDeleteNote(request, env, noteId, rawBody) {
       .run();
   }
 
+  if (existing.root_id && existing.kind === 'answer') {
+    await env.DB.prepare(`
+      UPDATE notes
+      SET accepted_answer_id = NULL, question_status = 'open'
+      WHERE id = ? AND accepted_answer_id = ?
+    `).bind(existing.root_id, noteId).run();
+  }
+
   await bumpBookVersion(env, existing.book_uid, now);
   return jsonResponse({ ok: true, id: noteId });
 }
 
 export async function handleVoteNote(request, env, noteId, rawBody) {
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
   const now = Date.now();
 
@@ -677,7 +698,7 @@ export async function handleVoteNote(request, env, noteId, rawBody) {
 
 export async function handleAcceptAnswer(request, env, answerId, rawBody) {
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
   const now = Date.now();
 
@@ -745,12 +766,17 @@ export async function handleAcceptAnswer(request, env, answerId, rawBody) {
 }
 
 async function registerReportInternal(env, { note, reporter, reason, details, now }) {
-  await env.DB.prepare(`
+  const ins = await env.DB.prepare(`
     INSERT OR IGNORE INTO reports (id, note_id, reporter_id, reason, details, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(crypto.randomUUID(), note.id, reporter.id, reason, details.slice(0, 300), now).run();
 
-  // Raise risk score for mod queue
+  const inserted = (ins?.meta?.changes ?? ins?.changes ?? 0) > 0;
+  if (!inserted) {
+    return { autoHidden: note.status === 'hidden', duplicate: true };
+  }
+
+  // Raise risk score for mod queue only on first report by this user
   await env.DB.prepare('UPDATE notes SET risk_score = risk_score + 20 WHERE id = ?').bind(note.id).run();
 
   // Check distinct reporters of level active+
@@ -780,7 +806,7 @@ async function registerReportInternal(env, { note, reporter, reason, details, no
 
 export async function handleReportNote(request, env, noteId, rawBody) {
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
   const now = Date.now();
 
@@ -790,6 +816,11 @@ export async function handleReportNote(request, env, noteId, rawBody) {
   }
   if (note.author_id === user.id) {
     return errorResponse(400, 'SELF_REPORT', 'לא ניתן לדווח על רשומה של עצמך');
+  }
+
+  const daily = readDailyCounts(user, now);
+  if (daily.reports >= 25) {
+    return errorResponse(429, 'RATE_LIMIT_REPORTS', 'הגעת למגבלת הדיווחים היומית');
   }
 
   let body;
@@ -802,13 +833,19 @@ export async function handleReportNote(request, env, noteId, rawBody) {
   const reason = String(body.reason || 'other').slice(0, 60);
   const details = String(body.details || '').trim();
   const res = await registerReportInternal(env, { note, reporter: user, reason, details, now });
+  if (!res.duplicate) {
+    daily.reports += 1;
+    await env.DB.prepare('UPDATE users SET daily_counts = ? WHERE id = ?')
+      .bind(JSON.stringify(daily), user.id)
+      .run();
+  }
 
   return jsonResponse({ ok: true, ...res });
 }
 
 export async function handleAppealNote(request, env, noteId, rawBody) {
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
   const now = Date.now();
 
@@ -818,6 +855,9 @@ export async function handleAppealNote(request, env, noteId, rawBody) {
   if (!['rejected', 'hidden'].includes(note.status)) {
     return errorResponse(400, 'APPEAL_NOT_APPLICABLE', 'ניתן לערער רק על הערה שנדחתה או הוסתרה');
   }
+  if (note.appeal_status === 'reviewed') {
+    return errorResponse(400, 'APPEAL_ALREADY_REVIEWED', 'הערעור על רשומה זו כבר נבדק');
+  }
 
   let body = {};
   try {
@@ -826,14 +866,15 @@ export async function handleAppealNote(request, env, noteId, rawBody) {
     body = {};
   }
   const appealNote = String(body.reason || '').trim().slice(0, 400);
+  const riskDelta = note.appeal_status === 'pending' ? 0 : 25;
 
   await env.DB.prepare(`
     UPDATE notes
     SET appeal_status = 'pending',
         appeal_note = ?,
-        risk_score = risk_score + 25
+        risk_score = risk_score + ?
     WHERE id = ?
-  `).bind(appealNote, noteId).run();
+  `).bind(appealNote, riskDelta, noteId).run();
 
   return jsonResponse({ ok: true, appealStatus: 'pending', updatedAt: now });
 }

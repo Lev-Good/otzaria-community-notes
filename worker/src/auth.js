@@ -288,7 +288,13 @@ export async function authenticateRequest(request, env, rawBody, { required = tr
       .run();
     const changes = upd?.meta?.changes ?? upd?.changes ?? 0;
     if (changes === 0) {
-      return { ok: false, status: 409, code: 'SEQ_REPLAY', message: 'מונה הבקשה כבר נוצל או לא עדכני' };
+      return {
+        ok: false,
+        status: 409,
+        code: 'SEQ_REPLAY',
+        message: 'מונה הבקשה כבר נוצל או לא עדכני',
+        details: { currentSeq: Number(user.seq || 0) },
+      };
     }
     user.seq = seqNum;
   }

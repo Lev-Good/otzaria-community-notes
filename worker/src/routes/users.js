@@ -190,7 +190,7 @@ export async function handleRecoverUser(request, env, rawBody) {
 
 export async function handleGetMe(request, env) {
   const auth = await authenticateRequest(request, env, '', { required: true, requireSeq: false });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
 
   return jsonResponse({
@@ -207,7 +207,7 @@ export async function handleGetMe(request, env) {
 
 export async function handleUpdateMe(request, env, rawBody) {
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
 
   let body;
@@ -243,7 +243,7 @@ export async function handleUpdateMe(request, env, rawBody) {
 
 export async function handleGetMyNotes(request, env) {
   const auth = await authenticateRequest(request, env, '', { required: true, requireSeq: false });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
 
   const { results } = await env.DB.prepare(`
@@ -289,7 +289,7 @@ export async function handleGetMyNotes(request, env) {
 
 export async function handleGetInbox(request, env) {
   const auth = await authenticateRequest(request, env, '', { required: true, requireSeq: false });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
 
   const url = new URL(request.url);
@@ -331,7 +331,7 @@ export async function handleGetInbox(request, env) {
 
 export async function handleMarkInboxRead(request, env, rawBody) {
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
 
   let body;
@@ -369,7 +369,7 @@ export async function handleMarkInboxRead(request, env, rawBody) {
 
 export async function handleExportMe(request, env) {
   const auth = await authenticateRequest(request, env, '', { required: true, requireSeq: false });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
 
   const { results: notes } = await env.DB.prepare('SELECT * FROM notes WHERE author_id = ? ORDER BY created_at DESC')
@@ -402,7 +402,7 @@ export async function handleExportMe(request, env) {
 
 export async function handleDeleteMe(request, env, rawBody) {
   const auth = await authenticateRequest(request, env, rawBody, { required: true, requireSeq: true });
-  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message);
+  if (!auth.ok) return errorResponse(auth.status, auth.code, auth.message, auth.details || {});
   const { user } = auth;
 
   let body;

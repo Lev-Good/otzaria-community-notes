@@ -229,6 +229,82 @@
   /**
    * Safe plain-text highlighter using text nodes + <mark> (never innerHTML).
    */
+  /**
+   * Finds the exact [start, end) character span in rawText that corresponds to query
+   * after stripping Hebrew niqqud/cantillation, collapsing whitespace runs to a single space,
+   * and lowercasing.
+   */
+  function findNormalizedSpan(rawText, query) {
+    var src = String(rawText || '');
+    var q = String(query || '').trim();
+    if (!src || !q) return null;
+
+    var directIdx = src.indexOf(q);
+    if (directIdx !== -1) {
+      var directEnd = directIdx + q.length;
+      while (directEnd < src.length && /[\u0591-\u05C7]/.test(src[directEnd])) directEnd++;
+      var countBefore = 0;
+      var searchFrom = 0;
+      while (searchFrom < directIdx) {
+        var hit = src.indexOf(q, searchFrom);
+        if (hit === -1 || hit >= directIdx) break;
+        countBefore++;
+        searchFrom = hit + 1;
+      }
+      return { start: directIdx, end: directEnd, occurrence: countBefore };
+    }
+
+    var normQ = CN.anchors ? CN.anchors.normalizeCompare(q) : q.replace(/[\u0591-\u05C7]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!normQ) return null;
+
+    var normChars = [];
+    var normToRawStart = [];
+    var normToRawEnd = [];
+    var inSpace = false;
+
+    for (var i = 0; i < src.length; i++) {
+      var ch = src[i];
+      if (/[\u0591-\u05C7]/.test(ch)) {
+        if (normToRawEnd.length > 0) normToRawEnd[normToRawEnd.length - 1] = i + 1;
+        continue;
+      }
+      if (/\s/.test(ch)) {
+        if (!inSpace && normChars.length > 0) {
+          normChars.push(' ');
+          normToRawStart.push(i);
+          normToRawEnd.push(i + 1);
+          inSpace = true;
+        } else if (inSpace && normToRawEnd.length > 0) {
+          normToRawEnd[normToRawEnd.length - 1] = i + 1;
+        }
+        continue;
+      }
+      inSpace = false;
+      normChars.push(ch.toLowerCase());
+      normToRawStart.push(i);
+      normToRawEnd.push(i + 1);
+    }
+
+    var normStr = normChars.join('');
+    var matchIdx = normStr.indexOf(normQ);
+    if (matchIdx === -1) return null;
+
+    var startRaw = normToRawStart[matchIdx];
+    var endRaw = normToRawEnd[matchIdx + normQ.length - 1];
+    while (endRaw < src.length && /[\u0591-\u05C7]/.test(src[endRaw])) endRaw++;
+
+    var occ = 0;
+    var sf = 0;
+    while (sf < matchIdx) {
+      var h = normStr.indexOf(normQ, sf);
+      if (h === -1 || h >= matchIdx) break;
+      occ++;
+      sf = h + 1;
+    }
+
+    return { start: startRaw, end: endRaw, occurrence: occ };
+  }
+
   function renderSafeHighlightedSectionText(container, text, highlights) {
     container.textContent = '';
     var src = String(text || '');
@@ -239,45 +315,14 @@
 
     // Find first non-overlapping match per highlight quote (normalized comparison fallback)
     var ranges = [];
-    var normSrc = CN.anchors ? CN.anchors.normalizeCompare(src) : src.toLowerCase();
     for (var i = 0; i < highlights.length; i++) {
       var q = String(highlights[i].quote || '').trim();
       if (!q) continue;
-      var start = src.indexOf(q);
-      var len = q.length;
-      if (start === -1 && normSrc) {
-        var normQ = CN.anchors ? CN.anchors.normalizeCompare(q) : q.toLowerCase();
-        var cleanIdx = src.replace(/[\u0591-\u05C7]/g, '').indexOf(normQ);
-        if (cleanIdx !== -1) {
-          // Approximate map back to raw string index when nikud differs
-          var rawCount = 0;
-          var strippedCount = 0;
-          var mappedStart = -1;
-          var mappedEnd = src.length;
-          for (var c = 0; c < src.length; c++) {
-            var ch = src[c];
-            if (/[\u0591-\u05C7]/.test(ch)) {
-              rawCount++;
-              continue;
-            }
-            if (strippedCount === cleanIdx && mappedStart === -1) mappedStart = rawCount;
-            strippedCount++;
-            rawCount++;
-            if (strippedCount >= cleanIdx + normQ.length && mappedStart !== -1) {
-              mappedEnd = rawCount;
-              break;
-            }
-          }
-          if (mappedStart !== -1) {
-            start = mappedStart;
-            len = mappedEnd - mappedStart;
-          }
-        }
-      }
-      if (start !== -1) {
+      var span = findNormalizedSpan(src, q);
+      if (span) {
         ranges.push({
-          start: start,
-          end: start + len,
+          start: span.start,
+          end: span.end,
           isQuestion: highlights[i].isQuestion,
           isFocus: highlights[i].isFocus,
         });
@@ -319,27 +364,11 @@
 
     if (quote && sec) {
       var baseText = sec.sourceText || sec.renderedText || '';
-      var idx = baseText.indexOf(quote);
-      if (idx === -1) {
-        var baseStripped = baseText.replace(/[\u0591-\u05C7]/g, '');
-        var quoteStripped = quote.replace(/[\u0591-\u05C7]/g, '');
-        var sIdx = baseStripped.indexOf(quoteStripped);
-        if (sIdx !== -1) {
-          prefix = baseStripped.slice(Math.max(0, sIdx - CN.config.CONTEXT_CHARS), sIdx);
-          suffix = baseStripped.slice(sIdx + quoteStripped.length, sIdx + quoteStripped.length + CN.config.CONTEXT_CHARS);
-        }
-      } else {
-        prefix = baseText.slice(Math.max(0, idx - CN.config.CONTEXT_CHARS), idx);
-        suffix = baseText.slice(idx + quote.length, idx + quote.length + CN.config.CONTEXT_CHARS);
-        var countBefore = 0;
-        var searchFrom = 0;
-        while (searchFrom < idx) {
-          var hit = baseText.indexOf(quote, searchFrom);
-          if (hit === -1 || hit >= idx) break;
-          countBefore++;
-          searchFrom = hit + 1;
-        }
-        occurrence = countBefore;
+      var span = findNormalizedSpan(baseText, quote);
+      if (span) {
+        prefix = baseText.slice(Math.max(0, span.start - CN.config.CONTEXT_CHARS), span.start);
+        suffix = baseText.slice(span.end, span.end + CN.config.CONTEXT_CHARS);
+        occurrence = span.occurrence || 0;
       }
     }
 
@@ -722,5 +751,6 @@
     renderBookPaneDom: renderBookPaneDom,
     focusLocation: focusLocation,
     buildAnchorForSectionAndSelection: buildAnchorForSectionAndSelection,
+    findNormalizedSpan: findNormalizedSpan,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

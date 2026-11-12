@@ -249,6 +249,7 @@ test('End-to-end Worker API flow: registration, ECDSA seq, notes, Q&A, votes, re
     }, { auth: true, customSeq: 1 });
     assert.equal(replayRes.status, 409);
     assert.equal(replayRes.data.error.code, 'SEQ_REPLAY');
+    assert.equal(replayRes.data.error.currentSeq, 1);
 
     // 4. Book index & ETag 304
     const idx1 = await anon.call('GET', '/v1/books/id%3A183/index');

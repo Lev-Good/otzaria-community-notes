@@ -211,10 +211,17 @@
       }
     });
 
+    var initialDraftKey = comp.initialDraftKey || CN.storage.makeDraftKey(anchor.bookUid || anchor.titleHint, anchor.ref, anchor.quote);
+
     async function saveDraftNow(showFeedback) {
       var bodyVal = textarea.value;
       if (!bodyVal || !bodyVal.trim()) return;
       var key = CN.storage.makeDraftKey(anchor.bookUid || anchor.titleHint, anchor.ref, anchor.quote);
+      if (initialDraftKey && initialDraftKey !== key) {
+        await CN.storage.remove(initialDraftKey);
+        initialDraftKey = key;
+        comp.initialDraftKey = key;
+      }
       await CN.storage.set(key, {
         bookUid: anchor.bookUid || '',
         titleHint: anchor.titleHint || '',
@@ -303,6 +310,9 @@
         // Clear draft & unsaved flag
         var key = CN.storage.makeDraftKey(anchor.bookUid || anchor.titleHint, anchor.ref, anchor.quote);
         await CN.storage.remove(key);
+        if (initialDraftKey && initialDraftKey !== key) {
+          await CN.storage.remove(initialDraftKey);
+        }
         comp.body = '';
         comp.dirty = false;
         comp.editingNote = null;

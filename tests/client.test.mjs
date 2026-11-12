@@ -396,6 +396,12 @@ test('Client split book pane visibility, anchor builder, and TOC/section loading
   assert.equal(context.CN.bookPane.state.toc.length, 1);
   assert.ok(context.CN.bookPane.state.sections[2]);
   assert.equal(context.CN.bookPane.state.sections[2].ref, 'פרק א פסוק 3');
+
+  // Verify findNormalizedSpan maps queries across niqqud and newlines accurately
+  const rawHebrew = 'בְּרֵאשִׁית\n   בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם';
+  const span = context.CN.bookPane.findNormalizedSpan(rawHebrew, 'בראשית ברא אלהים');
+  assert.ok(span, 'expected span match across niqqud and newline');
+  assert.equal(rawHebrew.slice(span.start, span.end), 'בְּרֵאשִׁית\n   בָּרָא אֱלֹהִים');
 });
 
 test('Client dynamic context submenu & split toolbar builder (CN.menus)', async () => {

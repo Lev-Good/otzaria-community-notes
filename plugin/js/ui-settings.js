@@ -253,15 +253,24 @@
       el('h3', { className: 'settings-card-title', text: 'סימון בטקסט (טור ראשי)' }),
     ]);
     var hlBody = el('div', { className: 'settings-card-body' });
-    var hlDisabled = !hasBgPerm || !hasHlPerm;
+    var hlDisabled = !hasHlPerm;
     if (hlDisabled) {
       hlBody.appendChild(el('div', {
         className: 'settings-row',
-        text: 'כבוי כי חסרה הרשאת ריצת רקע או הדגשה בהגדרות התוסף באוצריא.',
+        text: 'כבוי כי חסרה הרשאת הדגשה (reader.highlight) בהגדרות התוסף באוצריא.',
+      }));
+    } else if (!hasBgPerm) {
+      hlBody.appendChild(el('div', {
+        className: 'settings-row',
+        text: 'הסימון בטקסט יפעל בעת פתיחת התוסף. לסימון אוטומטי ברקע ניתן להפעיל הרשאת ריצת רקע באוצריא.',
       }));
     }
     addSwitchRow(hlBody, 'סימון הערות בטקסט', '', Boolean(s.highlightEnabled && !hlDisabled), hlDisabled, async function (v) {
-      s.highlightEnabled = v; await saveAndRefresh(false);
+      s.highlightEnabled = v;
+      if (!v && CN.highlights && CN.highlights.clearPluginHighlights) {
+        CN.highlights.clearPluginHighlights();
+      }
+      await saveAndRefresh(false);
     });
     addSegmentedRow(hlBody, 'עוצמה', '', s.highlightIntensity, [
       ['subtle', 'עדין'], ['normal', 'רגיל'],

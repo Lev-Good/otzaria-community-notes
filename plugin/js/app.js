@@ -310,6 +310,17 @@
     try {
       var hlCap = await global.Otzaria.call('reader.getHighlightCapabilities');
       if (hlCap && hlCap.success && hlCap.data) CN.state.highlightCapabilities = hlCap.data;
+      if (!anchor.bookUid || !anchor.ref) {
+        var st = await global.Otzaria.call('reader.getCurrentState');
+        if (st && st.success && st.data) {
+          var d = st.data;
+          if (!anchor.bookUid) anchor.bookUid = d.bookUid || (d.id != null ? 'id:' + d.id : d.title) || '';
+          if (!anchor.titleHint) anchor.titleHint = d.title || anchor.bookUid;
+          if (!anchor.ref) anchor.ref = d.ref || (d.page != null ? 'page:' + d.page : 'sec:' + Number(d.sectionIndex || 0));
+          if (anchor.sectionHint == null && d.sectionIndex != null) anchor.sectionHint = Number(d.sectionIndex);
+          if (d.type === 'pdf') CN.state.isPdf = true;
+        }
+      }
     } catch (_) { /* ignore */ }
 
     var clickedIds = Array.isArray(sel.clickedHighlights)
@@ -351,7 +362,16 @@
   }
 
   function openCreateComposer(customAnchor) {
-    var anchor = customAnchor || {
+    var anchor = customAnchor ? {
+      bookUid: customAnchor.bookUid || CN.state.context.bookUid,
+      titleHint: customAnchor.titleHint || CN.state.context.titleHint,
+      ref: customAnchor.ref || CN.state.context.ref,
+      sectionHint: customAnchor.sectionHint != null ? customAnchor.sectionHint : CN.state.context.sectionIndex,
+      quote: customAnchor.quote || '',
+      prefix: customAnchor.prefix || '',
+      suffix: customAnchor.suffix || '',
+      occurrence: Number(customAnchor.occurrence || 0),
+    } : {
       bookUid: CN.state.context.bookUid,
       titleHint: CN.state.context.titleHint,
       ref: CN.state.context.ref,
@@ -361,22 +381,37 @@
       suffix: '',
       occurrence: 0,
     };
+
+    if (anchor.bookUid && anchor.bookUid !== CN.state.context.bookUid) {
+      CN.state.context.bookUid = anchor.bookUid;
+      CN.state.context.titleHint = anchor.titleHint || anchor.bookUid;
+      CN.state.context.bookId = anchor.titleHint || anchor.bookUid;
+      CN.state.context.ref = anchor.ref || 'sec:0';
+      if (anchor.sectionHint != null) CN.state.context.sectionIndex = Number(anchor.sectionHint);
+    }
+
     var defaultKind = CN.state.settings.defaultComposerKind === 'last'
       ? (CN.state.settings.lastUsedComposerKind || 'note')
       : (CN.state.settings.defaultComposerKind || 'note');
+
+    var initialKind = (customAnchor && customAnchor.kind) ? customAnchor.kind : defaultKind;
+    var initialBody = (customAnchor && customAnchor.body) ? String(customAnchor.body) : '';
+    var draftKey = (customAnchor && customAnchor.key)
+      ? customAnchor.key
+      : CN.storage.makeDraftKey(anchor.bookUid || anchor.titleHint, anchor.ref, anchor.quote);
 
     CN.state.previousScreen = CN.state.screen === 'compose' ? 'section' : CN.state.screen;
     CN.state.compose = {
       mode: 'create',
       editingNote: null,
-      kind: defaultKind,
-      body: '',
+      kind: initialKind,
+      body: initialBody,
       anchor: anchor,
-      dirty: false,
+      dirty: Boolean(initialBody),
+      initialDraftKey: draftKey,
     };
 
     // Load saved draft for same anchor if present
-    var draftKey = CN.storage.makeDraftKey(anchor.bookUid || anchor.titleHint, anchor.ref, anchor.quote);
     CN.storage.get(draftKey, null).then(function (draft) {
       if (draft && draft.body && CN.state.screen === 'compose') {
         CN.state.compose.body = draft.body;
@@ -579,6 +614,15 @@
           permissions: CN.state.permissions,
         });
       }
+      if (CN.highlights && CN.highlights.syncSectionHighlights && CN.state.permissions.indexOf('reader.highlight') !== -1) {
+        CN.highlights.syncSectionHighlights({
+          notes: cached.items,
+          bookId: ctx.bookId || ctx.titleHint || ctx.bookUid,
+          bookUid: ctx.bookUid,
+          theme: CN.state.theme,
+          settings: CN.state.settings,
+        });
+      }
       renderSectionScreen(document.getElementById('app-content'), { skipFetch: true });
     } else {
       CN.state.sectionLoading = true;
@@ -614,6 +658,15 @@
           notes: items,
           selectedText: (ctx.anchor && ctx.anchor.quote) || '',
           permissions: CN.state.permissions,
+        });
+      }
+      if (CN.highlights && CN.highlights.syncSectionHighlights && CN.state.permissions.indexOf('reader.highlight') !== -1) {
+        CN.highlights.syncSectionHighlights({
+          notes: items,
+          bookId: ctx.bookId || ctx.titleHint || ctx.bookUid,
+          bookUid: ctx.bookUid,
+          theme: CN.state.theme,
+          settings: CN.state.settings,
         });
       }
     } catch (_) {
@@ -1024,8 +1077,11 @@
       }));
     }
 
+    var renderedCount = 0;
+
     if (mineFilter === 'all' || mineFilter === 'drafts') {
       drafts.forEach(function (d) {
+        renderedCount++;
         var dCard = el('article', { className: 'card' }, [
           el('div', { className: 'card-header' }, [
             el('span', { className: 'author-name', text: (d.titleHint || d.bookUid || 'טיוטה') + (d.ref ? (' · ' + d.ref) : '') }),
@@ -1059,12 +1115,22 @@
         if (mineFilter === 'pending' && n.status !== 'pending') return;
         if (mineFilter === 'published' && n.status !== 'published') return;
         if (mineFilter === 'rejected' && n.status !== 'rejected' && n.status !== 'hidden') return;
+        renderedCount++;
         n.isOwn = true;
-        wrap.appendChild(CN.cards.buildNoteCard(n, { showReveal: false }));
+        var card = CN.cards.buildNoteCard(n, { showReveal: true });
+        if (n.titleHint || n.bookUid || n.ref) {
+          var locBar = el('div', {
+            className: 'meta-time',
+            style: { marginBottom: '4px', fontWeight: '600' },
+            text: (n.titleHint || n.bookUid || '') + (n.ref ? ' · ' + n.ref : ''),
+          });
+          card.insertBefore(locBar, card.firstChild);
+        }
+        wrap.appendChild(card);
       });
     }
 
-    if (wrap.children.length <= 2) {
+    if (renderedCount === 0) {
       wrap.appendChild(el('div', { className: 'empty-state' }, [
         el('p', { text: 'עדיין אין כאן רשומות' }),
         el('button', {
@@ -1260,12 +1326,24 @@
       var root = data.root;
       var isQuestion = root.kind === 'question';
 
+      if (root.bookUid && (root.bookUid !== CN.state.context.bookUid || root.ref !== CN.state.context.ref)) {
+        CN.state.context.bookUid = root.bookUid;
+        CN.state.context.titleHint = root.titleHint || root.bookUid;
+        CN.state.context.bookId = root.titleHint || root.bookUid;
+        CN.state.context.ref = root.ref || CN.state.context.ref;
+        if (root.sectionHint != null) CN.state.context.sectionIndex = Number(root.sectionHint);
+        renderChrome();
+        if (CN.bookPane) CN.bookPane.syncToContext();
+      }
+
       if (root.quote) {
         wrap.appendChild(el('div', { className: 'quote-box' }, [
           el('div', { className: 'quote-text', text: CN.ui.formatQuoteText(root.quote) }),
         ]));
       }
-      wrap.appendChild(CN.cards.buildNoteCard(root, { inThread: true }));
+      var rootCard = CN.cards.buildNoteCard(root, { inThread: true });
+      if (CN.state.activeFocusNoteId === root.id) rootCard.classList.add('highlight-focus');
+      wrap.appendChild(rootCard);
 
       var replyKind = isQuestion ? 'answer' : 'reply';
       var replyToId = null;
@@ -1275,7 +1353,7 @@
         wrap.appendChild(el('h3', { className: 'settings-card-title', text: 'תשובות (' + data.answers.length + ')' }));
         data.answers.forEach(function (ans) {
           var isAccepted = root.acceptedAnswerId === ans.id;
-          wrap.appendChild(CN.cards.buildNoteCard(ans, {
+          var ansCard = CN.cards.buildNoteCard(ans, {
             inThread: true,
             showReveal: false,
             isAccepted: isAccepted,
@@ -1295,14 +1373,16 @@
               replyToId = target.id;
               updateReplyTargetUI(target);
             },
-          }));
+          });
+          if (CN.state.activeFocusNoteId === ans.id) ansCard.classList.add('highlight-focus');
+          wrap.appendChild(ansCard);
         });
       }
 
       if (data.replies && data.replies.length > 0) {
         wrap.appendChild(el('h3', { className: 'settings-card-title', text: 'תגובות (' + data.replies.length + ')' }));
         data.replies.forEach(function (rep) {
-          wrap.appendChild(CN.cards.buildNoteCard(rep, {
+          var repCard = CN.cards.buildNoteCard(rep, {
             inThread: true,
             showReveal: false,
             onReplyTo: function (target) {
@@ -1310,8 +1390,19 @@
               replyToId = target.id;
               updateReplyTargetUI(target);
             },
-          }));
+          });
+          if (CN.state.activeFocusNoteId === rep.id) repCard.classList.add('highlight-focus');
+          wrap.appendChild(repCard);
         });
+      }
+
+      if (CN.state.activeFocusNoteId) {
+        setTimeout(function () {
+          var focusedEl = wrap.querySelector('[data-note-id="' + CN.state.activeFocusNoteId + '"]');
+          if (focusedEl && focusedEl.scrollIntoView) {
+            focusedEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 60);
       }
 
       // Sticky bottom reply bar

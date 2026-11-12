@@ -87,6 +87,9 @@
     } else if (note.status === 'hidden') {
       tags.appendChild(el('span', { className: 'tag error', text: 'הוסתרה' }));
     }
+    if (note.appealStatus === 'pending') {
+      tags.appendChild(el('span', { className: 'tag primary', text: 'ערעור בבדיקה' }));
+    }
     if (note.replyToAuthorName) {
       tags.appendChild(el('span', { className: 'tag', text: 'בתגובה ל־' + note.replyToAuthorName }));
     }
@@ -153,7 +156,7 @@
         className: 'action-btn',
         text: replyLabel,
         onClick: function () {
-          CN.app.openThread(note.id);
+          CN.app.openThread(note.rootId || note.id, note.rootId ? note.id : null);
         },
       }));
     }
@@ -182,10 +185,13 @@
         className: 'action-btn',
         text: t('הצג בטקסט'),
         onClick: async function () {
+          var targetBookId = (CN.state.context.bookUid === note.bookUid && CN.state.context.bookId)
+            ? CN.state.context.bookId
+            : (note.titleHint || note.bookUid);
           var splitVisible = CN.bookPane && CN.bookPane.shouldShowBookPane();
           if (splitVisible && CN.bookPane.focusLocation) {
             await CN.bookPane.focusLocation({
-              bookId: CN.state.context.bookId || note.titleHint || note.bookUid,
+              bookId: targetBookId,
               bookUid: note.bookUid,
               titleHint: note.titleHint,
               sectionIndex: note.sectionHint,
@@ -195,7 +201,7 @@
           }
           CN.highlights.revealNoteInBook({
             note: note,
-            bookId: CN.state.context.bookId || note.titleHint || note.bookUid,
+            bookId: targetBookId,
             bookUid: note.bookUid,
             theme: CN.state.theme,
             returnToReader: !splitVisible && CN.state.settings.returnAfterReveal !== false,
@@ -261,7 +267,7 @@
           confirmDeleteNote(note);
         },
       }));
-      if (note.status === 'rejected' || note.status === 'hidden') {
+      if ((note.status === 'rejected' || note.status === 'hidden') && note.appealStatus !== 'pending' && note.appealStatus !== 'reviewed') {
         menu.appendChild(el('button', {
           type: 'button',
           text: t('ערער'),

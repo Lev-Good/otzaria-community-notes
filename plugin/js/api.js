@@ -58,7 +58,7 @@
     return { status: res.status, ok: res.ok, headers: hObj, text: text };
   }
 
-  async function request(method, pathWithQuery, { bodyObj = null, auth = false, identity = null, settings = null, retry429 = true, headersExtra = {} } = {}) {
+  async function request(method, pathWithQuery, { bodyObj = null, auth = false, identity = null, settings = null, retry429 = true, retrySeq = true, headersExtra = {} } = {}) {
     var baseUrl = getBaseUrl(settings);
     var url = baseUrl + pathWithQuery;
     var bodyText = bodyObj !== null ? JSON.stringify(bodyObj) : '';
@@ -96,7 +96,7 @@
     // Automatic single retry on 429 rate-limit after brief pause
     if (resp.status === 429 && retry429) {
       await new Promise(function (r) { setTimeout(r, 1500); });
-      return request(method, pathWithQuery, { bodyObj: bodyObj, auth: auth, identity: identity, settings: settings, retry429: false, headersExtra: headersExtra });
+      return request(method, pathWithQuery, { bodyObj: bodyObj, auth: auth, identity: identity, settings: settings, retry429: false, retrySeq: retrySeq, headersExtra: headersExtra });
     }
 
     var parsed = null;
@@ -105,6 +105,24 @@
         parsed = JSON.parse(resp.text);
       } catch (_) {
         parsed = null;
+      }
+    }
+
+    // Automatic self-healing on 409 SEQ_REPLAY (e.g. after restoring identity backup or multi-tab desync)
+    if (resp.status === 409 && retrySeq && isWrite && auth && identity && parsed && parsed.error && parsed.error.code === 'SEQ_REPLAY') {
+      var serverSeq = parsed.error.currentSeq != null ? Number(parsed.error.currentSeq) : null;
+      if (serverSeq == null || isNaN(serverSeq)) {
+        try {
+          var meResp = await request('GET', '/v1/me', { auth: true, identity: identity, settings: settings, retry429: false, retrySeq: false });
+          if (meResp.ok && meResp.data && meResp.data.seq != null) {
+            serverSeq = Number(meResp.data.seq);
+          }
+        } catch (_) { /* ignore */ }
+      }
+      if (serverSeq != null && !isNaN(serverSeq)) {
+        identity.seq = Math.max(Number(identity.seq || 0), serverSeq);
+        await CN.storage.set(CN.storage.KEYS.IDENTITY, identity);
+        return request(method, pathWithQuery, { bodyObj: bodyObj, auth: auth, identity: identity, settings: settings, retry429: retry429, retrySeq: false, headersExtra: headersExtra });
       }
     }
 
