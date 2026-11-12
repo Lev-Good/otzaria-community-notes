@@ -1119,6 +1119,33 @@ html[dir="ltr"] .overlay-panel {
   font-weight: 700;
 }
 
+.settings-tab-btn svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.tag svg,
+.action-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-inline-end: 6px;
+  vertical-align: middle;
+  color: var(--color-primary);
+}
+
+.empty-state-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .panel-body {
   flex: 1 1 auto;
   min-height: 0;

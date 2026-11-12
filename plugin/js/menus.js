@@ -24,7 +24,7 @@
   }
 
   function formatMenuPreviewLine(note, isMatched) {
-    var iconPrefix = note.kind === 'question' ? '❓ ' : (note.tier === 'recommended' || isMatched ? '★ ' : '💬 ');
+    var iconPrefix = note.kind === 'question' ? '[שאלה] ' : (note.tier === 'recommended' || isMatched ? '[מומלצת] ' : '');
     var author = String(note.authorName || 'לומד').replace(/\s+/g, ' ').trim();
     if (author.length > 14) author = author.slice(0, 13) + '…';
     var body = String(note.body || '').replace(/\s+/g, ' ').trim();
@@ -149,9 +149,9 @@
     var author = String(n.authorName || 'לומד').replace(/\s+/g, ' ').trim();
     var votes = Number(n.upCount || 0);
     var kindLabel = n.kind === 'question'
-      ? (n.questionStatus === 'answered' ? '❓ שאלה (נענתה)' : '❓ שאלה פתוחה')
-      : (n.tier === 'recommended' ? '★ הערה מומלצת' : '💬 הערה');
-    var metaHeader = kindLabel + ' · ' + author + (votes > 0 ? (' · 👍 ' + votes) : '');
+      ? (n.questionStatus === 'answered' ? 'שאלה (נענתה)' : 'שאלה פתוחה')
+      : (n.tier === 'recommended' ? 'הערה מומלצת' : 'הערה');
+    var metaHeader = kindLabel + ' · ' + author + (votes > 0 ? (' · מועיל: ' + votes) : '');
     var threadParam = {
       action: 'open-thread',
       rootId: n.id,
@@ -164,6 +164,7 @@
         id: 'cn-n-' + n.id + '-meta',
         type: 'item',
         title: metaHeader,
+        icon: n.kind === 'question' ? 'comment_24_regular' : 'comment_note_24_regular',
         openPlugin: true,
         param: threadParam,
       },
@@ -175,7 +176,7 @@
       children.push({
         id: 'cn-n-' + n.id + '-quote',
         type: 'item',
-        title: '📖 על: "' + cleanQ + '"',
+        title: 'על הציטוט: "' + cleanQ + '"',
         openPlugin: true,
         param: threadParam,
       });
@@ -200,7 +201,7 @@
     children.push({
       id: 'cn-n-' + n.id + '-open-thread',
       type: 'item',
-      title: '💬 פתח שרשור והשב' + (totalReplies > 0 ? (' (' + totalReplies + ')') : ''),
+      title: 'פתח שרשור והשב' + (totalReplies > 0 ? (' (' + totalReplies + ')') : ''),
       icon: 'comment_24_regular',
       openPlugin: true,
       param: threadParam,
@@ -208,7 +209,7 @@
     children.push({
       id: 'cn-n-' + n.id + '-open-all',
       type: 'item',
-      title: '📖 הצג בחלונית הספר והערות הקטע',
+      title: 'הצג בחלונית הספר והערות הקטע',
       icon: 'comment_note_24_regular',
       openPlugin: true,
       param: { action: 'open-all', quote: n.quote || '' },
@@ -303,7 +304,7 @@
           primaryFull.push({
             id: 'cn-note-more',
             type: 'submenu',
-            title: '📚 הערות נוספות בקטע (' + built.overflowItems.length + ')',
+            title: 'הערות נוספות בקטע (' + built.overflowItems.length + ')',
             icon: 'comment_note_24_regular',
             children: buildContextChildren(extraBatch, useFullSubmenus, 'cn-more-note-').concat([
               { id: 'cn-more-sep', type: 'separator' },

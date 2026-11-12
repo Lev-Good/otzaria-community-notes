@@ -33,18 +33,10 @@
       }
 
       async function isShabbatQuiet() {
-        if (!settings.shabbatQuietMode || !hasPerm('calendar.read')) return false;
-        try {
-          var res = await Otzaria.call('calendar.getJewishDate');
-          if (res && res.success && res.data) {
-            if (res.data.isShabbat) return true;
-            var holidays = res.data.holidays || [];
-            for (var i = 0; i < holidays.length; i++) {
-              if (holidays[i] && holidays[i].kind === 'yomTov') return true;
-            }
-          }
-        } catch (_) { /* ignore */ }
-        return false;
+        if (CN.sync && CN.sync.isShabbatOrYomTov) {
+          return CN.sync.isShabbatOrYomTov(permissions);
+        }
+        return new Date().getDay() === 6;
       }
 
       async function checkInboxAndNotify() {

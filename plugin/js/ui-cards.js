@@ -70,7 +70,10 @@
 
     var tags = el('div', { className: 'card-author-row' });
     if (options.isAccepted) {
-      tags.appendChild(el('span', { className: 'tag primary', text: '✓ תשובה מקובלת' }));
+      tags.appendChild(el('span', { className: 'tag primary' }, [
+        CN.ui.getSvgIcon('check'),
+        el('span', { text: t('תשובה מקובלת') }),
+      ]));
     }
     if (note.kind === 'question') {
       tags.appendChild(el('span', {

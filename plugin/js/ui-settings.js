@@ -6,11 +6,11 @@
   var prioritySyncRunning = false;
 
   var TABS = [
-    ['display', '🎨 תצוגה וכתיבה'],
-    ['menus', '✨ הדגשות ותפריטים'],
-    ['sync', '🔄 סנכרון ולימוד יומי'],
-    ['notifications', '🔔 התראות ושבת'],
-    ['account', '👤 חשבון ושרת'],
+    { id: 'display', label: 'תצוגה וכתיבה', icon: 'display' },
+    { id: 'menus', label: 'הדגשות ותפריטים', icon: 'menus' },
+    { id: 'sync', label: 'סנכרון ולימוד יומי', icon: 'sync' },
+    { id: 'notifications', label: 'התראות', icon: 'bell' },
+    { id: 'account', label: 'חשבון ושרת', icon: 'account' },
   ];
 
   function openSettingsPanel(tabId) {
@@ -48,19 +48,21 @@
 
     if (tabsHost) {
       tabsHost.textContent = '';
-      TABS.forEach(function (pair) {
-        var isSel = activeTab === pair[0];
+      TABS.forEach(function (tab) {
+        var isSel = activeTab === tab.id;
         tabsHost.appendChild(el('button', {
           type: 'button',
           role: 'tab',
           'aria-selected': isSel ? 'true' : 'false',
           className: 'settings-tab-btn' + (isSel ? ' active' : ''),
-          text: pair[1],
           onClick: function () {
-            activeTab = pair[0];
+            activeTab = tab.id;
             renderSettingsPanel();
           },
-        }));
+        }, [
+          CN.ui.getSvgIcon ? CN.ui.getSvgIcon(tab.icon) : null,
+          el('span', { text: tab.label }),
+        ]));
       });
     }
 
@@ -532,10 +534,19 @@
       var cacheSec = createCard('מטמון מקומי ונתונים שמורים');
       var secCacheObj = CN.storage.loadSectionCache ? await CN.storage.loadSectionCache() : { order: [] };
       var cachedCount = Array.isArray(secCacheObj.order) ? secCacheObj.order.length : 0;
+      var effectiveMax = CN.storage.getEffectiveCacheLimit ? CN.storage.getEffectiveCacheLimit() : (Number(s.maxCachedLocations) || CN.config.MAX_CACHED_LOCATIONS);
+      addSegmentedRow(
+        cacheSec.body,
+        'תקרת קטעים שמורים בזיכרון המקומי (אופליין)',
+        'כל "קטע שמור" הוא רשימת ההערות של דף/פרק ספר אחד שפתחת או סונכרן מראש. התקרה מונעת מקובץ ה־JSON המקומי להתנפח ולהאט טעינה לאורך שנים',
+        String(Number(s.maxCachedLocations) >= 1000 ? s.maxCachedLocations : CN.config.MAX_CACHED_LOCATIONS),
+        [['1000', '1,000 קטעים'], ['2000', '2,000 (ברירת מחדל)'], ['5000', '5,000 קטעים']],
+        async function (v) { s.maxCachedLocations = Number(v); await saveAndRefresh(false); }
+      );
       cacheSec.body.appendChild(el('div', { className: 'settings-row' }, [
         el('div', {}, [
-          el('div', { className: 'settings-row-title', text: 'איפוס מטמון מקומי (' + cachedCount + ' / ' + CN.config.MAX_CACHED_LOCATIONS + ' קטעים שמורים)' }),
-          el('div', { className: 'settings-row-subtitle', text: 'מנקה הערות שמורות לצפייה אופליין. הטיוטות האישיות נשארות' }),
+          el('div', { className: 'settings-row-title', text: 'איפוס מטמון מקומי (' + cachedCount + ' / ' + effectiveMax + ' קטעים שמורים כעת)' }),
+          el('div', { className: 'settings-row-subtitle', text: 'מנקה את רשימות ההערות השמורות לצפייה אופליין. הטיוטות האישיות נשארות' }),
         ]),
         el('button', {
           type: 'button',
@@ -551,10 +562,10 @@
       body.appendChild(cacheSec.card);
     }
 
-    // ── TAB 4: Notifications & Shabbat Quiet Mode ───────────────────────────
+    // ── TAB 4: Notifications ────────────────────────────────────────────────
     else if (activeTab === 'notifications') {
-      var chSec = createCard('ערוצי התראות ותזמון');
-      addSwitchRow(chSec.body, 'התראות בתוך אוצריא', 'תגים והודעות על פעילות בשרשורים שלך', s.inAppNotifications !== false, false, async function (v) {
+      var chSec = createCard('התראות אישיות ותדירות בדיקה');
+      addSwitchRow(chSec.body, 'התראות בתוך אוצריא', 'מציג התראה בתוך התוכנה כשמתקבלת תגובה, תשובה לשאלה או הודעת מודרציה בתיבה שלך', s.inAppNotifications !== false, false, async function (v) {
         s.inAppNotifications = v; await saveAndRefresh(false);
       });
       addSwitchRow(
@@ -567,8 +578,10 @@
       );
       addSegmentedRow(
         chSec.body,
-        'תדירות בדיקת הודעות ברקע',
-        hasBgPerm ? '' : 'דורש הרשאת ריצת רקע (app.run_on_startup)',
+        'בדיקת תיבת ההודעות האישית ברקע',
+        hasBgPerm
+          ? 'בודק מול שרת הקהילה אם יש הודעות אישיות חדשות (תגובה להערה שלך, תשובה לשאלתך או החלטת צוות) בעליית אוצריא ובמעבר בין קטעים. פעיל רק כשמחוברים לחשבון'
+          : 'דורש הרשאת ריצת רקע (app.run_on_startup) · בודק הודעות ותגובות אישיות משרת הקהילה',
         String(s.bgCheckFrequencyMin),
         [['30', 'כל 30 דקות'], ['60', 'כל שעה'], ['0', 'רק בעליית אוצריא']],
         async function (v) {
@@ -577,9 +590,17 @@
           await saveAndRefresh(false);
         }
       );
-      addSwitchRow(chSec.body, 'מצב שקט בשבת ויום טוב', 'לא להציג התראות קופצות בשבתות ובמועדי ישראל', s.shabbatQuietMode !== false, false, async function (v) {
-        s.shabbatQuietMode = v; await saveAndRefresh(false);
-      });
+      chSec.body.appendChild(el('div', { className: 'settings-row' }, [
+        el('div', {}, [
+          el('div', { className: 'settings-row-title', text: 'השתקה אוטומטית בשבת וביום טוב' }),
+          el('div', {
+            className: 'settings-row-subtitle',
+            text: 'מופעל תמיד אוטומטית ללא הגדרה: לא מוצגות התראות בשבתות ובמועדי יום טוב (בחול המועד, איסרו חג, חנוכה ופורים ההתראות פעילות כרגיל).' +
+              (!hasCalPerm ? ' לזיהוי מדויק של חגי ישראל ומוצאי שבת מומלץ לאשר הרשאת לוח שנה (calendar.read).' : ''),
+          }),
+        ]),
+        el('span', { className: 'tag primary', text: 'פעיל תמיד' }),
+      ]));
       body.appendChild(chSec.card);
 
       var tpSec = createCard('סינון סוגי התראות');

@@ -678,7 +678,9 @@
           statusBadge.textContent = 'מעלה...';
         } else if (item.uploadStatus === 'published') {
           statusBadge.className = 'tag primary';
-          statusBadge.textContent = 'פורסמה ✓';
+          statusBadge.textContent = '';
+          if (CN.ui && CN.ui.getSvgIcon) statusBadge.appendChild(CN.ui.getSvgIcon('check'));
+          statusBadge.appendChild(document.createTextNode('פורסמה'));
         } else if (item.uploadStatus === 'pending') {
           statusBadge.className = 'tag warning';
           statusBadge.textContent = 'נשלחה לאישור';

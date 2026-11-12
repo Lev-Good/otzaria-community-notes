@@ -30,6 +30,7 @@ function loadPluginModules(extraEnv = {}) {
       querySelectorAll() { return []; },
       addEventListener() {},
       createTextNode: (t) => ({ nodeType: 3, textContent: t }),
+      createElementNS: (_ns, tag) => context.document.createElement(tag),
       createElement: (tag) => {
         const classes = new Set();
         const node = {
@@ -174,8 +175,9 @@ test('Client anchors: multi-paragraph handling, neighboring section search, and 
   assert.equal(groups[2].type, 'unlocated');
 });
 
-test('Client storage LRU cache eviction at 200 entries & i18n fallback', async () => {
+test('Client storage LRU cache eviction at configured cap & i18n fallback', async () => {
   const { CN } = loadPluginModules();
+  assert.equal(CN.config.MAX_CACHED_LOCATIONS, 2000);
   CN.config.MAX_CACHED_LOCATIONS = 3; // temporarily test eviction cleanly
   await CN.storage.putCachedSectionNotes('b1', 'r1', [{ id: '1' }]);
   await CN.storage.putCachedSectionNotes('b1', 'r2', [{ id: '2' }]);
@@ -425,8 +427,8 @@ test('Client dynamic context submenu & split toolbar builder (CN.menus)', async 
   assert.ok(built.items[0].matched);
   assert.ok(built.items[1].matched);
   assert.equal(built.items[2].note.id, 'n-other');
-  assert.ok(built.items[0].label.startsWith('★ '));
-  assert.ok(built.items[1].label.startsWith('❓ '));
+  assert.ok(built.items[0].label.startsWith('[מומלצת] '));
+  assert.ok(built.items[1].label.startsWith('[שאלה] '));
   assert.ok(built.items[1].label.length <= 78);
   assert.ok(built.items[1].label.endsWith('...'));
 
@@ -558,4 +560,62 @@ test('Client Daily Study & Priority Books sync target parsing and prefetching (C
   assert.ok(syncMeta.booksSynced >= 1);
   assert.ok(syncMeta.sectionsCached >= 1);
   assert.equal(mockStore.get('cached:id:10::דף ב').items[0].id, 'prefetched-1');
+});
+
+test('Unconditional Shabbat & Yom Tov quiet mode suppresses Shabbat/YomTov and allows Chol HaMoed/Isru Chag/Chanukah/Purim', async () => {
+  const { context } = loadPluginModules();
+  vm.runInContext(fs.readFileSync(path.join(pluginDir, 'js/api.js'), 'utf8'), context, { filename: 'js/api.js' });
+  vm.runInContext(fs.readFileSync(path.join(pluginDir, 'js/sync.js'), 'utf8'), context, { filename: 'js/sync.js' });
+  let mockDate = {};
+  context.Otzaria.call = async (method) => {
+    if (method === 'calendar.getJewishDate') return { success: true, data: mockDate };
+    return { success: true, data: null };
+  };
+
+  mockDate = { isShabbat: true, holidays: [] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), true);
+
+  mockDate = { isShabbat: true, holidays: [{ name: 'חנוכה' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), true);
+
+  mockDate = { isShabbat: false, holidays: [{ kind: 'yomTov', name: 'שבועות' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), true);
+
+  mockDate = { isShabbat: false, holidays: [{ name: 'יום הכיפורים' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), true);
+
+  mockDate = { isShabbat: false, holidays: [{ kind: 'cholHamoed', name: 'חול המועד פסח' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), false);
+
+  mockDate = { isShabbat: false, isYomTov: true, holidays: [{ name: 'חול המועד סוכות' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), false);
+
+  mockDate = { isShabbat: false, holidays: [{ name: 'אסרו חג' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), false);
+
+  mockDate = { isShabbat: false, holidays: [{ name: 'איסרו חג שבועות' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), false);
+
+  mockDate = { isShabbat: false, holidays: [{ name: 'חנוכה נר ג׳' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), false);
+
+  mockDate = { isShabbat: false, holidays: [{ name: 'פורים' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), false);
+
+  mockDate = { isShabbat: false, holidays: [{ name: 'שושן פורים' }] };
+  assert.equal(await context.CN.sync.isShabbatOrYomTov(['calendar.read']), false);
+});
+
+test('Plugin UI contains zero pictograph emojis', () => {
+  const emojiRe = /[\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2B50\u2753-\u2755\u23F3\u231B]/u;
+  const targets = [
+    path.join(pluginDir, 'index.html'),
+    path.join(pluginDir, 'background.html'),
+    ...fs.readdirSync(path.join(pluginDir, 'js')).map((f) => path.join(pluginDir, 'js', f)),
+  ];
+  for (const file of targets) {
+    const content = fs.readFileSync(file, 'utf8');
+    const m = content.match(emojiRe);
+    assert.equal(m, null, `Found emoji ${m && m[0]} in ${file}`);
+  }
 });

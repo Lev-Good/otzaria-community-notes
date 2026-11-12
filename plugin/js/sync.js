@@ -348,6 +348,56 @@
     }
   }
 
+  function isAllowedFestivalHoliday(h) {
+    if (!h) return false;
+    var kind = String(h.kind || h.type || h.category || '').toLowerCase();
+    var text = String(h.name || h.hebrewName || h.title || h.heTitle || (typeof h === 'string' ? h : ''));
+    if (/chol[_ -]?hamoed|isru[_ -]?chag|chanukah|hanukkah|purim/i.test(kind)) return true;
+    if (/(?:^|[^א-ת])(חול\s*המועד|חוה"?מ|אי?סרו\s*חג|חנוכה|שושן\s*פורים|ה?פורים(?:\s*קטן)?|ראש\s*חודש|ערב\s+)/.test(text)) return true;
+    return false;
+  }
+
+  function isYomTovHoliday(h) {
+    if (!h || isAllowedFestivalHoliday(h)) return false;
+    var kind = String(h.kind || h.type || h.category || '').toLowerCase();
+    if (kind === 'yomtov' || kind === 'yom_tov' || kind === 'yom-tov') return true;
+    var text = String(h.name || h.hebrewName || h.title || h.heTitle || (typeof h === 'string' ? h : ''));
+    if (/^(ראש השנה|יום כיפור|יום הכיפורים|שמיני עצרת|שמחת תורה|שביעי של פסח|אחרון של פסח|שבועות)/.test(text)) {
+      return true;
+    }
+    if ((/^סוכות\b|^פסח\b/.test(text) || /^א׳?\s*(דסוכות|דפסח)/.test(text)) && !/חול|שני|שלישי|רביעי|חמישי|שישי|ערב|אי?סרו/.test(text)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Unconditionally silences alerts on Shabbat and Yom Tov.
+   * Explicitly keeps notifications active on Chol HaMoed, Isru Chag, Chanukah, and Purim.
+   */
+  async function isShabbatOrYomTov(permissions) {
+    var perms = Array.isArray(permissions)
+      ? permissions
+      : ((CN.state && Array.isArray(CN.state.permissions)) ? CN.state.permissions : []);
+    if (perms.indexOf('calendar.read') !== -1 && global.Otzaria) {
+      try {
+        var res = await global.Otzaria.call('calendar.getJewishDate');
+        if (res && res.success && res.data) {
+          if (res.data.isShabbat) return true;
+          var holidays = Array.isArray(res.data.holidays) ? res.data.holidays : [];
+          var hasAllowedOnly = false;
+          for (var i = 0; i < holidays.length; i++) {
+            if (isYomTovHoliday(holidays[i])) return true;
+            if (isAllowedFestivalHoliday(holidays[i])) hasAllowedOnly = true;
+          }
+          if (res.data.isYomTov === true && !hasAllowedOnly) return true;
+          return false;
+        }
+      } catch (_) { /* fall back to day check */ }
+    }
+    return new Date().getDay() === 6;
+  }
+
   CN.sync = {
     PARASHA_TO_CHUMASH: PARASHA_TO_CHUMASH,
     parseDailyStudyTargetsFromCalendar: parseDailyStudyTargetsFromCalendar,
@@ -356,5 +406,6 @@
     resolveBookUid: resolveBookUid,
     syncPriorityBooksIfDue: syncPriorityBooksIfDue,
     getCachedSyncMeta: getCachedSyncMeta,
+    isShabbatOrYomTov: isShabbatOrYomTov,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

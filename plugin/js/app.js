@@ -569,8 +569,7 @@
             strip.appendChild(el('span', {
               className: 'tag primary',
               title: 'סנכרון מואץ פעיל: ' + pri.reason,
-              text: '⚡ ' + pri.reason,
-            }));
+            }, [CN.ui.getSvgIcon('bolt'), el('span', { text: pri.reason })]));
           }
         }
       }
@@ -1547,24 +1546,16 @@
   }
 
   async function isShabbatOrYomTov() {
-    if (!CN.state.settings.shabbatQuietMode) return false;
-    if (CN.state.permissions.indexOf('calendar.read') === -1) return false;
-    try {
-      var res = await global.Otzaria.call('calendar.getJewishDate');
-      if (res && res.success && res.data) {
-        if (res.data.isShabbat) return true;
-        var holidays = res.data.holidays || [];
-        for (var i = 0; i < holidays.length; i++) {
-          if (holidays[i] && holidays[i].kind === 'yomTov') return true;
-        }
-      }
-    } catch (_) { /* ignore */ }
-    return false;
+    if (CN.sync && CN.sync.isShabbatOrYomTov) {
+      return CN.sync.isShabbatOrYomTov(CN.state.permissions);
+    }
+    return new Date().getDay() === 6;
   }
 
   async function refreshInboxBadge() {
     if (!CN.state.identity || !CN.state.identity.userId) return;
     if (CN.state.isOnline === false) return;
+    if (await isShabbatOrYomTov()) return;
     try {
       var res = await CN.api.request('GET', '/v1/me/inbox?after=0', {
         auth: true,

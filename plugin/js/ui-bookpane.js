@@ -464,14 +464,14 @@
         el('button', {
           type: 'button',
           className: 'action-btn',
-          text: '✕',
           'aria-label': 'סגור תצוגת ספר',
+          title: 'סגור תצוגת ספר',
           onClick: function () {
             CN.state.bookPaneOpenOverride = false;
             CN.app.renderChrome();
             renderBookPaneDom();
           },
-        }),
+        }, CN.ui.getSvgIcon('close')),
       ]),
     ]);
     header.appendChild(topRow);

@@ -48,7 +48,10 @@
     }
 
     if (CN.state.modQueue.length === 0) {
-      wrap.appendChild(el('div', { className: 'empty-state', text: 'תור המודרציה ריק 🎉' }));
+      wrap.appendChild(el('div', { className: 'empty-state' }, [
+        el('span', { className: 'empty-state-icon' }, CN.ui.getSvgIcon('checkCircle')),
+        el('span', { text: 'תור המודרציה ריק' }),
+      ]));
     } else {
       for (var i = 0; i < CN.state.modQueue.length; i++) {
         wrap.appendChild(buildModItemCard(CN.state.modQueue[i], container));

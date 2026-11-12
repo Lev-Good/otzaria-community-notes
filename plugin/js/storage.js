@@ -45,12 +45,11 @@
       highlightIntensity: 'subtle',      // subtle | normal
       highlightSeparateQuestions: true,
       highlightRecommendedOnly: false,
-      // Notifications
+      // Notifications (Shabbat & Yom Tov are always quiet unconditionally)
       inAppNotifications: true,
       notifyTypes: { reply: true, answer: true, accepted: true, moderation: true },
       systemNotifications: false,
       bgCheckFrequencyMin: 30,           // 30 | 60 | 0 (startup only)
-      shabbatQuietMode: true,
       // Sync & Daily Study Prioritization
       sectionRefreshMin: 3,              // 1 | 3 | 5 | 0 (manual/on-navigate only)
       priorityRefreshMin: 1,             // 1 | 2 | 0
@@ -58,6 +57,7 @@
       dailyStudyTracks: { dafYomi: true, parasha: true, mishnaYomit: true, rambam: false },
       prioritySyncIntervalMin: 15,       // 15 | 30 | 60
       priorityBooks: [],                 // string[] of book titles
+      maxCachedLocations: 0,             // 0 = use CN.config.MAX_CACHED_LOCATIONS (2000)
       // Context Menu Display
       contextMenuFullSubmenus: true,     // nested cascaded submenus showing full note body
       contextMenuMaxNotes: 12,           // 8 | 12 | 20 primary notes per level
@@ -118,7 +118,14 @@
     return set(KEYS.SETTINGS, migrateSettings(settings));
   }
 
-  // LRU cache of up to 200 recent section note lists
+  // LRU cache of recent section note lists (default cap: 2000 sections)
+  function getEffectiveCacheLimit() {
+    var cfgMax = Number(CN.config.MAX_CACHED_LOCATIONS || 2000);
+    if (cfgMax > 0 && cfgMax < 100) return cfgMax; // allow unit tests to set small bounds directly
+    var userMax = (CN.state && CN.state.settings && Number(CN.state.settings.maxCachedLocations)) || 0;
+    return userMax >= 100 ? userMax : cfgMax;
+  }
+
   async function loadSectionCache() {
     var data = await get(KEYS.CACHE_SECTIONS, null);
     if (!data || typeof data !== 'object') return { order: [], entries: {} };
@@ -147,7 +154,7 @@
       savedAt: Date.now(),
       items: Array.isArray(items) ? items : [],
     };
-    var max = CN.config.MAX_CACHED_LOCATIONS;
+    var max = getEffectiveCacheLimit();
     while (cache.order.length > max) {
       var evicted = cache.order.pop();
       delete cache.entries[evicted];
@@ -214,6 +221,7 @@
     remove: remove,
     loadSettings: loadSettings,
     saveSettings: saveSettings,
+    getEffectiveCacheLimit: getEffectiveCacheLimit,
     loadSectionCache: loadSectionCache,
     getCachedSectionNotes: getCachedSectionNotes,
     putCachedSectionNotes: putCachedSectionNotes,
