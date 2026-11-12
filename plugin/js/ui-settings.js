@@ -2,7 +2,19 @@
   'use strict';
   var CN = (global.CN = global.CN || {});
 
-  function openSettingsPanel() {
+  var activeTab = 'display';
+  var prioritySyncRunning = false;
+
+  var TABS = [
+    ['display', '🎨 תצוגה וכתיבה'],
+    ['menus', '✨ הדגשות ותפריטים'],
+    ['sync', '🔄 סנכרון ולימוד יומי'],
+    ['notifications', '🔔 התראות ושבת'],
+    ['account', '👤 חשבון ושרת'],
+  ];
+
+  function openSettingsPanel(tabId) {
+    if (tabId) activeTab = tabId;
     renderSettingsPanel();
     document.getElementById('settings-scrim').classList.add('open');
     document.getElementById('settings-panel').classList.add('open');
@@ -13,17 +25,46 @@
     document.getElementById('settings-panel').classList.remove('open');
   }
 
-  function renderSettingsPanel() {
+  async function renderSettingsPanel() {
     var el = CN.ui.el;
+    var tabsHost = document.getElementById('settings-tabs');
     var body = document.getElementById('settings-body');
+    var subtitleEl = document.getElementById('settings-subtitle');
     if (!body) return;
-    body.textContent = '';
 
     var s = CN.state.settings;
     var perms = CN.state.permissions || [];
     var hasBgPerm = perms.indexOf('app.run_on_startup') !== -1;
     var hasHlPerm = perms.indexOf('reader.highlight') !== -1;
     var hasSysNotifPerm = perms.indexOf('notifications.system') !== -1;
+    var hasCalPerm = perms.indexOf('calendar.read') !== -1;
+
+    if (subtitleEl) {
+      var who = (CN.state.identity && CN.state.identity.userId)
+        ? ('מחובר כ־' + CN.state.identity.displayName)
+        : 'גלישה כאורח (קריאה בלבד)';
+      subtitleEl.textContent = who + ' · גרסה ' + (CN.config.PLUGIN_VERSION || '');
+    }
+
+    if (tabsHost) {
+      tabsHost.textContent = '';
+      TABS.forEach(function (pair) {
+        var isSel = activeTab === pair[0];
+        tabsHost.appendChild(el('button', {
+          type: 'button',
+          role: 'tab',
+          'aria-selected': isSel ? 'true' : 'false',
+          className: 'settings-tab-btn' + (isSel ? ' active' : ''),
+          text: pair[1],
+          onClick: function () {
+            activeTab = pair[0];
+            renderSettingsPanel();
+          },
+        }));
+      });
+    }
+
+    body.textContent = '';
 
     function addSegmentedRow(cardBody, title, subtitle, value, options, onChange) {
       var seg = el('div', { className: 'segmented' });
@@ -38,7 +79,7 @@
           },
         }));
       });
-      cardBody.appendChild(el('div', { className: 'settings-row stacked' }, [
+      cardBody.appendChild(el('div', { className: 'settings-row' }, [
         el('div', {}, [
           el('div', { className: 'settings-row-title', text: title }),
           subtitle ? el('div', { className: 'settings-row-subtitle', text: subtitle }) : null,
@@ -70,481 +111,707 @@
       ]));
     }
 
+    function createCard(title) {
+      var card = el('section', { className: 'settings-card' }, [
+        el('h3', { className: 'settings-card-title', text: title }),
+      ]);
+      var cBody = el('div', { className: 'settings-card-body' });
+      card.appendChild(cBody);
+      return { card: card, body: cBody };
+    }
+
     async function saveAndRefresh(mutateDisplay) {
       await CN.storage.saveSettings(CN.state.settings);
       if (mutateDisplay) CN.ui.applyUserDisplaySettings();
       CN.app.refreshCurrentScreen();
     }
 
-    // 1. Display card
-    var displayCard = el('section', { className: 'settings-card' }, [
-      el('h3', { className: 'settings-card-title', text: 'תצוגה' }),
-    ]);
-    var displayBody = el('div', { className: 'settings-card-body' });
+    // ── TAB 1: Display & Writing ────────────────────────────────────────────
+    if (activeTab === 'display') {
+      var filterSec = createCard('סינון ומיון תוכן');
+      addSegmentedRow(filterSec.body, 'רמת סינון', 'דרגת הסינון נקבעת לפי דירוג הקהילה בשרת', s.filterTier, [
+        ['recommended_and_new', 'מומלצות וחדשות'],
+        ['recommended_only', 'מומלצות בלבד'],
+        ['all', 'הכל'],
+      ], async function (v) { s.filterTier = v; CN.state.sectionFilter = v; await saveAndRefresh(false); });
 
-    addSegmentedRow(displayBody, 'רמת סינון', 'דרגת הסינון נקבעת לפי דירוג הקהילה בשרת', s.filterTier, [
-      ['recommended_and_new', 'מומלצות וחדשות'],
-      ['recommended_only', 'מומלצות בלבד'],
-      ['all', 'הכל'],
-    ], async function (v) { s.filterTier = v; CN.state.sectionFilter = v; await saveAndRefresh(false); });
+      addSegmentedRow(filterSec.body, 'מיון בתוך קבוצה', 'סדר הופעת ההערות בכל ציטוט', s.sortOrder, [
+        ['recommended', 'מומלצות קודם'],
+        ['newest', 'חדשות קודם'],
+      ], async function (v) { s.sortOrder = v; CN.state.sectionSort = v; await saveAndRefresh(false); });
 
-    addSegmentedRow(displayBody, 'מיון בתוך קבוצה', '', s.sortOrder, [
-      ['recommended', 'מומלצות קודם'],
-      ['newest', 'חדשות קודם'],
-    ], async function (v) { s.sortOrder = v; CN.state.sectionSort = v; await saveAndRefresh(false); });
-
-    // Content types multi-select
-    var ctGroup = el('div', { className: 'chip-group' });
-    [['note', 'הערות'], ['question', 'שאלות'], ['answer', 'תשובות']].forEach(function (pair) {
-      var active = s.contentTypes[pair[0]] !== false;
-      ctGroup.appendChild(el('button', {
-        type: 'button',
-        className: 'chip-btn' + (active ? ' active' : ''),
-        text: pair[1],
-        onClick: async function () {
-          s.contentTypes[pair[0]] = !active;
-          await saveAndRefresh(false);
-          renderSettingsPanel();
-        },
-      }));
-    });
-    displayBody.appendChild(el('div', { className: 'settings-row stacked' }, [
-      el('div', { className: 'settings-row-title', text: 'סוגי תוכן' }),
-      el('div', { className: 'settings-row-subtitle', text: 'תשובות מוצגות בתוך שרשור גם כשהן מסוננות' }),
-      ctGroup,
-    ]));
-
-    addSegmentedRow(displayBody, 'גודל טקסט בכרטיסים', '', s.cardTextSize, [
-      ['otzaria', 'לפי אוצריא'], ['small', 'קטן'], ['medium', 'בינוני'], ['large', 'גדול'],
-    ], async function (v) { s.cardTextSize = v; await saveAndRefresh(true); });
-
-    addSegmentedRow(displayBody, 'ניקוד וטעמים בציטוט', '', s.nikudMode, [
-      ['otzaria', 'לפי אוצריא'], ['always', 'תמיד'], ['never', 'אף פעם'],
-    ], async function (v) { s.nikudMode = v; await saveAndRefresh(false); });
-
-    addSegmentedRow(displayBody, 'צפיפות', '', s.density, [
-      ['comfortable', 'נוחה'], ['compact', 'קומפקטית'],
-    ], async function (v) { s.density = v; await saveAndRefresh(true); });
-
-    addSegmentedRow(displayBody, 'כרטיסים ארוכים', 'מעל ארבע שורות', s.longCards, [
-      ['collapsed', 'מקופלים'], ['expanded', 'פתוחים'],
-    ], async function (v) { s.longCards = v; await saveAndRefresh(false); });
-
-    addSegmentedRow(displayBody, 'ציטוט בקבוצה', '', s.groupQuoteMode, [
-      ['single_line', 'שורה אחת'], ['full', 'מלא'],
-    ], async function (v) { s.groupQuoteMode = v; await saveAndRefresh(false); });
-
-    addSegmentedRow(displayBody, 'מספר "מועיל"', '', s.helpfulCountMode, [
-      ['from_3', 'מ־3'], ['always', 'תמיד'], ['never', 'אף פעם'],
-    ], async function (v) { s.helpfulCountMode = v; await saveAndRefresh(false); });
-
-    displayBody.appendChild(el('div', { className: 'settings-row' }, [
-      el('div', {}, [
-        el('div', { className: 'settings-row-title', text: 'ערכת צבעים' }),
-        el('div', { className: 'settings-row-subtitle', text: 'מותאמת אוטומטית לערכת הצבעים של אוצריא' }),
-      ]),
-      el('span', { className: 'tag', text: 'לפי אוצריא' }),
-    ]));
-
-    displayCard.appendChild(displayBody);
-    body.appendChild(displayCard);
-
-    // 2. Behavior card
-    var behCard = el('section', { className: 'settings-card' }, [
-      el('h3', { className: 'settings-card-title', text: 'התנהגות' }),
-    ]);
-    var behBody = el('div', { className: 'settings-card-body' });
-
-    addSegmentedRow(behBody, 'מסך פתיחה', '', s.startScreen, [
-      ['section', 'בקטע'], ['questions', 'שאלות'], ['home', 'בית'],
-    ], async function (v) { s.startScreen = v; await saveAndRefresh(false); });
-
-    addSegmentedRow(behBody, 'תצוגת ספר לצד התוסף', 'מציג את הספר מצד ימין ואת ההערות וכתיבתן מצד שמאל', s.splitBookPane || 'auto', [
-      ['auto', 'חכם (בספר וכתיבה)'], ['always', 'תמיד כשיש ספר'], ['off', 'כבוי'],
-    ], async function (v) {
-      s.splitBookPane = v;
-      CN.state.bookPaneOpenOverride = null;
-      await saveAndRefresh(false);
-    });
-
-    addSwitchRow(behBody, 'חזרה לספר אחרי שליחה', '', s.returnAfterSubmit !== false, false, async function (v) {
-      s.returnAfterSubmit = v; await saveAndRefresh(false);
-    });
-    addSwitchRow(behBody, 'חזרה לספר אחרי "הצג בטקסט"', '', s.returnAfterReveal !== false, false, async function (v) {
-      s.returnAfterReveal = v; await saveAndRefresh(false);
-    });
-    addSegmentedRow(behBody, 'סוג ברירת מחדל בטופס', '', s.defaultComposerKind, [
-      ['note', 'הערה'], ['question', 'שאלה'], ['last', 'האחרון שבחרתי'],
-    ], async function (v) { s.defaultComposerKind = v; await saveAndRefresh(false); });
-
-    addSwitchRow(behBody, 'שמירת טיוטות אוטומטית', '', s.autosaveDrafts !== false, false, async function (v) {
-      s.autosaveDrafts = v; await saveAndRefresh(false);
-    });
-
-    behBody.appendChild(el('div', { className: 'settings-row' }, [
-      el('div', {}, [
-        el('div', { className: 'settings-row-title', text: 'קיצור מקלדת להוספת הערה' }),
-        el('div', { className: 'settings-row-subtitle', text: 'ברירת מחדל: Ctrl+Alt+N. לשינוי: הגדרות ← קיצורי מקשים ← קיצורי תוספים באוצריא' }),
-      ]),
-    ]));
-
-    // Hidden words personal list
-    var hwInput = el('input', { className: 'input', type: 'text', placeholder: 'הוסף מילה להסתרה מקומית...' });
-    var hwChips = el('div', { className: 'chip-group' });
-    (s.hiddenWords || []).forEach(function (word) {
-      hwChips.appendChild(el('button', {
-        type: 'button',
-        className: 'chip-btn',
-        text: word + ' ×',
-        onClick: async function () {
-          s.hiddenWords = s.hiddenWords.filter(function (w) { return w !== word; });
-          await saveAndRefresh(false);
-          renderSettingsPanel();
-        },
-      }));
-    });
-    behBody.appendChild(el('div', { className: 'settings-row stacked' }, [
-      el('div', { className: 'settings-row-title', text: 'מילים להסתרה (מקומי)' }),
-      el('div', { className: 'card-actions-group' }, [
-        hwInput,
-        el('button', {
+      var ctGroup = el('div', { className: 'chip-group' });
+      [['note', 'הערות'], ['question', 'שאלות'], ['answer', 'תשובות']].forEach(function (pair) {
+        var active = s.contentTypes[pair[0]] !== false;
+        ctGroup.appendChild(el('button', {
           type: 'button',
-          className: 'btn-secondary',
-          text: 'הוסף',
+          className: 'chip-btn' + (active ? ' active' : ''),
+          text: pair[1],
           onClick: async function () {
-            var w = hwInput.value.trim();
-            if (w && s.hiddenWords.indexOf(w) === -1) {
-              s.hiddenWords.push(w);
-              await saveAndRefresh(false);
-              renderSettingsPanel();
-            }
+            s.contentTypes[pair[0]] = !active;
+            await saveAndRefresh(false);
+            renderSettingsPanel();
           },
-        }),
-      ]),
-      hwChips,
-    ]));
+        }));
+      });
+      filterSec.body.appendChild(el('div', { className: 'settings-row' }, [
+        el('div', {}, [
+          el('div', { className: 'settings-row-title', text: 'סוגי תוכן מוצגים' }),
+          el('div', { className: 'settings-row-subtitle', text: 'תשובות מוצגות בתוך שרשור גם כשהן מסוננות' }),
+        ]),
+        ctGroup,
+      ]));
 
-    // Blocked authors list
-    var blkChips = el('div', { className: 'chip-group' });
-    (s.blockedAuthors || []).forEach(function (author) {
-      blkChips.appendChild(el('button', {
-        type: 'button',
-        className: 'chip-btn',
-        text: author.name + ' (בטל חסימה)',
-        onClick: async function () {
-          s.blockedAuthors = s.blockedAuthors.filter(function (x) { return x.id !== author.id; });
-          await saveAndRefresh(false);
-          renderSettingsPanel();
-        },
-      }));
-    });
-    behBody.appendChild(el('div', { className: 'settings-row stacked' }, [
-      el('div', { className: 'settings-row-title', text: 'כותבים חסומים (מקומי)' }),
-      (s.blockedAuthors && s.blockedAuthors.length > 0)
-        ? blkChips
-        : el('div', { className: 'settings-row-subtitle', text: 'אין כותבים חסומים' }),
-    ]));
+      addSegmentedRow(filterSec.body, 'הצגת מונה "מועיל"', 'מתי להציג כמה לומדים דירגו את ההערה', s.helpfulCountMode, [
+        ['from_3', 'מ־3'], ['always', 'תמיד'], ['never', 'אף פעם'],
+      ], async function (v) { s.helpfulCountMode = v; await saveAndRefresh(false); });
+      body.appendChild(filterSec.card);
 
-    behCard.appendChild(behBody);
-    body.appendChild(behCard);
+      var typoSec = createCard('טיפוגרפיה וכרטיסי הערות');
+      addSegmentedRow(typoSec.body, 'גודל טקסט בכרטיסים', '', s.cardTextSize, [
+        ['otzaria', 'לפי אוצריא'], ['small', 'קטן'], ['medium', 'בינוני'], ['large', 'גדול'],
+      ], async function (v) { s.cardTextSize = v; await saveAndRefresh(true); });
 
-    // 3. Text Highlights (Extended Layer)
-    var hlCard = el('section', { className: 'settings-card' }, [
-      el('h3', { className: 'settings-card-title', text: 'סימון בטקסט (טור ראשי)' }),
-    ]);
-    var hlBody = el('div', { className: 'settings-card-body' });
-    var hlDisabled = !hasHlPerm;
-    if (hlDisabled) {
-      hlBody.appendChild(el('div', {
-        className: 'settings-row',
-        text: 'כבוי כי חסרה הרשאת הדגשה (reader.highlight) בהגדרות התוסף באוצריא.',
-      }));
-    } else if (!hasBgPerm) {
-      hlBody.appendChild(el('div', {
-        className: 'settings-row',
-        text: 'הסימון בטקסט יפעל בעת פתיחת התוסף. לסימון אוטומטי ברקע ניתן להפעיל הרשאת ריצת רקע באוצריא.',
-      }));
-    }
-    addSwitchRow(hlBody, 'סימון הערות בטקסט', '', Boolean(s.highlightEnabled && !hlDisabled), hlDisabled, async function (v) {
-      s.highlightEnabled = v;
-      if (!v && CN.highlights && CN.highlights.clearPluginHighlights) {
-        CN.highlights.clearPluginHighlights();
-      }
-      await saveAndRefresh(false);
-    });
-    addSegmentedRow(hlBody, 'עוצמה', '', s.highlightIntensity, [
-      ['subtle', 'עדין'], ['normal', 'רגיל'],
-    ], async function (v) { s.highlightIntensity = v; await saveAndRefresh(false); });
-    addSwitchRow(hlBody, 'צבע נפרד לשאלות פתוחות', '', s.highlightSeparateQuestions !== false, hlDisabled, async function (v) {
-      s.highlightSeparateQuestions = v; await saveAndRefresh(false);
-    });
-    addSwitchRow(hlBody, 'סמן מומלצות בלבד', '', Boolean(s.highlightRecommendedOnly), hlDisabled, async function (v) {
-      s.highlightRecommendedOnly = v; await saveAndRefresh(false);
-    });
-    hlCard.appendChild(hlBody);
-    body.appendChild(hlCard);
+      addSegmentedRow(typoSec.body, 'ניקוד וטעמים בציטוט', '', s.nikudMode, [
+        ['otzaria', 'לפי אוצריא'], ['always', 'תמיד'], ['never', 'אף פעם'],
+      ], async function (v) { s.nikudMode = v; await saveAndRefresh(false); });
 
-    // 4. Notifications
-    var notifCard = el('section', { className: 'settings-card' }, [
-      el('h3', { className: 'settings-card-title', text: 'התראות' }),
-    ]);
-    var notifBody = el('div', { className: 'settings-card-body' });
-    addSwitchRow(notifBody, 'התראות בתוך אוצריא', '', s.inAppNotifications !== false, false, async function (v) {
-      s.inAppNotifications = v; await saveAndRefresh(false);
-    });
+      addSegmentedRow(typoSec.body, 'צפיפות תצוגה', '', s.density, [
+        ['comfortable', 'נוחה'], ['compact', 'קומפקטית'],
+      ], async function (v) { s.density = v; await saveAndRefresh(true); });
 
-    var ntGroup = el('div', { className: 'chip-group' });
-    [
-      ['reply', 'תגובה להערתי'],
-      ['answer', 'תשובה לשאלתי'],
-      ['accepted', 'תשובה מקובלת'],
-      ['moderation', 'החלטת מודרציה'],
-    ].forEach(function (pair) {
-      var active = s.notifyTypes[pair[0]] !== false;
-      ntGroup.appendChild(el('button', {
-        type: 'button',
-        className: 'chip-btn' + (active ? ' active' : ''),
-        text: pair[1],
-        onClick: async function () {
-          s.notifyTypes[pair[0]] = !active;
-          await saveAndRefresh(false);
-          renderSettingsPanel();
-        },
-      }));
-    });
-    notifBody.appendChild(el('div', { className: 'settings-row stacked' }, [
-      el('div', { className: 'settings-row-title', text: 'סוגי התראות' }),
-      ntGroup,
-    ]));
+      addSegmentedRow(typoSec.body, 'כרטיסים ארוכים', 'מעל ארבע שורות', s.longCards, [
+        ['collapsed', 'מקופלים'], ['expanded', 'פתוחים'],
+      ], async function (v) { s.longCards = v; await saveAndRefresh(false); });
 
-    addSwitchRow(
-      notifBody,
-      'התראת מערכת',
-      hasSysNotifPerm ? 'פועל כשאוצריא פתוחה' : 'כבוי כי הרשאת התראות מערכת אינה מאושרת',
-      Boolean(s.systemNotifications && hasSysNotifPerm),
-      !hasSysNotifPerm,
-      async function (v) { s.systemNotifications = v; await saveAndRefresh(false); }
-    );
+      addSegmentedRow(typoSec.body, 'ציטוט בקבוצה', '', s.groupQuoteMode, [
+        ['single_line', 'שורה אחת'], ['full', 'מלא'],
+      ], async function (v) { s.groupQuoteMode = v; await saveAndRefresh(false); });
 
-    addSegmentedRow(
-      notifBody,
-      'תדירות בדיקה ברקע',
-      hasBgPerm ? '' : 'דורש הרשאת ריצת רקע (app.run_on_startup)',
-      String(s.bgCheckFrequencyMin),
-      [['30', 'כל 30 דקות'], ['60', 'כל שעה'], ['0', 'רק בעליית אוצריא']],
-      async function (v) {
-        if (!hasBgPerm) return;
-        s.bgCheckFrequencyMin = Number(v);
+      typoSec.body.appendChild(el('div', { className: 'settings-row' }, [
+        el('div', {}, [
+          el('div', { className: 'settings-row-title', text: 'ערכת צבעים' }),
+          el('div', { className: 'settings-row-subtitle', text: 'מותאמת אוטומטית לערכת הצבעים של אוצריא' }),
+        ]),
+        el('span', { className: 'tag', text: 'לפי אוצריא' }),
+      ]));
+      body.appendChild(typoSec.card);
+
+      var behSec = createCard('התנהגות, תצוגה מפוצלת וכתיבה');
+      addSegmentedRow(behSec.body, 'מסך פתיחה', '', s.startScreen, [
+        ['section', 'בקטע'], ['questions', 'שאלות'], ['home', 'בית'],
+      ], async function (v) { s.startScreen = v; await saveAndRefresh(false); });
+
+      addSegmentedRow(behSec.body, 'תצוגת ספר לצד התוסף', 'מציג את הספר מצד ימין ואת ההערות וכתיבתן מצד שמאל', s.splitBookPane || 'auto', [
+        ['auto', 'חכם (בספר וכתיבה)'], ['always', 'תמיד כשיש ספר'], ['off', 'כבוי'],
+      ], async function (v) {
+        s.splitBookPane = v;
+        CN.state.bookPaneOpenOverride = null;
         await saveAndRefresh(false);
+      });
+
+      addSegmentedRow(behSec.body, 'סוג ברירת מחדל בטופס', '', s.defaultComposerKind, [
+        ['note', 'הערה'], ['question', 'שאלה'], ['last', 'האחרון שבחרתי'],
+      ], async function (v) { s.defaultComposerKind = v; await saveAndRefresh(false); });
+
+      addSwitchRow(behSec.body, 'חזרה לספר אחרי שליחה', 'מחזיר אוטומטית לחלון הקריאה בסיום כתיבה', s.returnAfterSubmit !== false, false, async function (v) {
+        s.returnAfterSubmit = v; await saveAndRefresh(false);
+      });
+      addSwitchRow(behSec.body, 'חזרה לספר אחרי "הצג בטקסט"', 'כשהתצוגה המפוצלת אינה פתוחה', s.returnAfterReveal !== false, false, async function (v) {
+        s.returnAfterReveal = v; await saveAndRefresh(false);
+      });
+      addSwitchRow(behSec.body, 'שמירת טיוטות אוטומטית', 'מונע איבוד טקסט בעת יציאה מהטופס', s.autosaveDrafts !== false, false, async function (v) {
+        s.autosaveDrafts = v; await saveAndRefresh(false);
+      });
+      body.appendChild(behSec.card);
+    }
+
+    // ── TAB 2: Highlights, Context Menus & Personal Filters ──────────────────
+    else if (activeTab === 'menus') {
+      var hlSec = createCard('סימון הערות בטקסט הספר (טור ראשי)');
+      var hlDisabled = !hasHlPerm;
+      if (hlDisabled) {
+        hlSec.body.appendChild(el('div', {
+          className: 'settings-row',
+          text: 'כבוי כי חסרה הרשאת הדגשה (reader.highlight) בהגדרות התוסף באוצריא.',
+        }));
+      } else if (!hasBgPerm) {
+        hlSec.body.appendChild(el('div', {
+          className: 'settings-row',
+          text: 'הסימון בטקסט יפעל בעת פתיחת התוסף. לסימון אוטומטי ברקע הפעל הרשאת ריצת רקע באוצריא.',
+        }));
       }
-    );
+      addSwitchRow(hlSec.body, 'סימון הערות בטקסט', 'צובע ציטוטים שיש עליהם הערות קהילה בדף הספר', Boolean(s.highlightEnabled && !hlDisabled), hlDisabled, async function (v) {
+        s.highlightEnabled = v;
+        if (!v && CN.highlights && CN.highlights.clearPluginHighlights) {
+          CN.highlights.clearPluginHighlights();
+        }
+        await saveAndRefresh(false);
+      });
+      addSegmentedRow(hlSec.body, 'עוצמת הדגשה', '', s.highlightIntensity, [
+        ['subtle', 'עדין'], ['normal', 'רגיל'],
+      ], async function (v) { s.highlightIntensity = v; await saveAndRefresh(false); });
+      addSwitchRow(hlSec.body, 'צבע נפרד לשאלות פתוחות', 'מבחין בין ביאורים לבין שאלות המחכות לתשובה', s.highlightSeparateQuestions !== false, hlDisabled, async function (v) {
+        s.highlightSeparateQuestions = v; await saveAndRefresh(false);
+      });
+      addSwitchRow(hlSec.body, 'סמן הערות מומלצות בלבד', '', Boolean(s.highlightRecommendedOnly), hlDisabled, async function (v) {
+        s.highlightRecommendedOnly = v; await saveAndRefresh(false);
+      });
+      body.appendChild(hlSec.card);
 
-    addSwitchRow(notifBody, 'שבת וחג', 'לא להציג התראות בשבת וביום טוב', s.shabbatQuietMode !== false, false, async function (v) {
-      s.shabbatQuietMode = v; await saveAndRefresh(false);
-    });
+      var ctxSec = createCard('תפריט מקש ימני וסרגל כלים');
+      addSwitchRow(
+        ctxSec.body,
+        'תת־תפריט מלא לכל הערה (קריאה ישירה במקש ימני)',
+        'בעת ריחוף על הערה בתפריט "הצג הערות קהילה" ייפתח תת־תפריט עם הטקסט המלא של ההערה',
+        s.contextMenuFullSubmenus !== false,
+        false,
+        async function (v) {
+          s.contextMenuFullSubmenus = v;
+          await saveAndRefresh(false);
+          if (CN.menus && CN.menus.syncMenusForSection) {
+            CN.menus.syncMenusForSection({
+              notes: CN.state.sectionNotes || [],
+              selectedText: (CN.state.context && CN.state.context.anchor && CN.state.context.anchor.quote) || '',
+              permissions: CN.state.permissions,
+              settings: s,
+            });
+          }
+        }
+      );
+      addSegmentedRow(
+        ctxSec.body,
+        'כמות הערות בתפריט הראשי',
+        'הערות מעבר למספר זה עוברות לתת־תפריט "הערות נוספות בקטע"',
+        String(s.contextMenuMaxNotes || 12),
+        [['8', '8 הערות'], ['12', '12 הערות'], ['20', '20 הערות']],
+        async function (v) {
+          s.contextMenuMaxNotes = Number(v);
+          await saveAndRefresh(false);
+          if (CN.menus && CN.menus.syncMenusForSection) {
+            CN.menus.syncMenusForSection({
+              notes: CN.state.sectionNotes || [],
+              selectedText: (CN.state.context && CN.state.context.anchor && CN.state.context.anchor.quote) || '',
+              permissions: CN.state.permissions,
+              settings: s,
+            });
+          }
+        }
+      );
+      body.appendChild(ctxSec.card);
 
-    notifCard.appendChild(notifBody);
-    body.appendChild(notifCard);
-
-    // 5. Account & Privacy
-    var accCard = el('section', { className: 'settings-card' }, [
-      el('h3', { className: 'settings-card-title', text: 'חשבון ופרטיות' }),
-    ]);
-    var accBody = el('div', { className: 'settings-card-body' });
-
-    if (CN.state.identity && CN.state.identity.userId) {
-      var renameInput = el('input', { className: 'input', type: 'text', value: CN.state.identity.displayName });
-      accBody.appendChild(el('div', { className: 'settings-row stacked' }, [
-        el('div', { className: 'settings-row-title', text: 'שם תצוגה (שינוי עד פעם בחודש)' }),
+      var pFiltSec = createCard('סינון והסתרה מקומית');
+      var hwInput = el('input', { className: 'input', type: 'text', placeholder: 'הוסף מילה להסתרה מקומית...' });
+      var hwChips = el('div', { className: 'chip-group' });
+      (s.hiddenWords || []).forEach(function (word) {
+        hwChips.appendChild(el('button', {
+          type: 'button',
+          className: 'chip-btn',
+          text: word + ' ×',
+          onClick: async function () {
+            s.hiddenWords = s.hiddenWords.filter(function (w) { return w !== word; });
+            await saveAndRefresh(false);
+            renderSettingsPanel();
+          },
+        }));
+      });
+      pFiltSec.body.appendChild(el('div', { className: 'settings-row stacked' }, [
+        el('div', { className: 'settings-row-title', text: 'מילים להסתרה (מקומי בלבד)' }),
         el('div', { className: 'card-actions-group' }, [
-          renameInput,
+          hwInput,
           el('button', {
             type: 'button',
             className: 'btn-secondary',
-            text: CN.ui.t('שמור'),
+            text: 'הוסף',
             onClick: async function () {
-              var res = await CN.api.request('PATCH', '/v1/me', {
-                auth: true,
-                identity: CN.state.identity,
-                settings: s,
-                bodyObj: { displayName: renameInput.value.trim() },
-              });
-              if (res.ok && res.data) {
-                CN.state.identity.displayName = res.data.displayName;
-                await CN.storage.set(CN.storage.KEYS.IDENTITY, CN.state.identity);
-                CN.ui.showToast('שם התצוגה עודכן');
-              } else {
-                CN.ui.showToast((res.data && res.data.error && res.data.error.message) || 'לא ניתן לעדכן שם');
+              var w = hwInput.value.trim();
+              if (w && s.hiddenWords.indexOf(w) === -1) {
+                s.hiddenWords.push(w);
+                await saveAndRefresh(false);
+                renderSettingsPanel();
+              }
+            },
+          }),
+        ]),
+        hwChips,
+      ]));
+
+      var blkChips = el('div', { className: 'chip-group' });
+      (s.blockedAuthors || []).forEach(function (author) {
+        blkChips.appendChild(el('button', {
+          type: 'button',
+          className: 'chip-btn',
+          text: author.name + ' (בטל חסימה)',
+          onClick: async function () {
+            s.blockedAuthors = s.blockedAuthors.filter(function (x) { return x.id !== author.id; });
+            await saveAndRefresh(false);
+            renderSettingsPanel();
+          },
+        }));
+      });
+      pFiltSec.body.appendChild(el('div', { className: 'settings-row stacked' }, [
+        el('div', { className: 'settings-row-title', text: 'כותבים חסומים (מקומי)' }),
+        (s.blockedAuthors && s.blockedAuthors.length > 0)
+          ? blkChips
+          : el('div', { className: 'settings-row-subtitle', text: 'אין כותבים חסומים' }),
+      ]));
+      body.appendChild(pFiltSec.card);
+    }
+
+    // ── TAB 3: Sync Frequency, Daily Study & Cache ──────────────────────────
+    else if (activeTab === 'sync') {
+      body.appendChild(el('div', {
+        className: 'settings-tab-intro',
+        text: 'כל פתיחת ספר או מעבר קטע טוען מיידית מהזיכרון ומתעדכן מהשרת. כאן ניתן לקבוע כל כמה דקות הקטע הפתוח מתרענן אוטומטית מהשרת, ולהפעיל סנכרון מועדף לספרי הלימוד היומי.',
+      }));
+
+      var freqSec = createCard('תדירות התעדכנות אוטומטית מהשרת');
+      addSegmentedRow(
+        freqSec.body,
+        'רענון אוטומטי בספר רגיל (בחזית)',
+        'כל כמה דקות לבדוק הערות ותשובות חדשות מהקהילה בדף הפתוח',
+        String(s.sectionRefreshMin !== undefined ? s.sectionRefreshMin : 3),
+        [['1', 'כל דקה'], ['3', 'כל 3 דק׳'], ['5', 'כל 5 דק׳'], ['0', 'במעבר קטע בלבד']],
+        async function (v) { s.sectionRefreshMin = Number(v); await saveAndRefresh(false); }
+      );
+      addSegmentedRow(
+        freqSec.body,
+        'רענון מואץ בספרי לימוד יומי / מועדפים',
+        'תדירות גבוהה יותר בספרים עם תנועה ערה של לומדים',
+        String(s.priorityRefreshMin !== undefined ? s.priorityRefreshMin : 1),
+        [['1', 'כל דקה'], ['2', 'כל 2 דק׳'], ['0', 'כתדירות רגילה']],
+        async function (v) { s.priorityRefreshMin = Number(v); await saveAndRefresh(false); }
+      );
+      body.appendChild(freqSec.card);
+
+      var dailySec = createCard('ספרי הלימוד היומי — סנכרון וטעינה מוקדמת');
+      if (!hasCalPerm) {
+        dailySec.body.appendChild(el('div', {
+          className: 'settings-row',
+          text: 'הערה: לזיהוי אוטומטי של הדף היומי והפרשה מהלוח העברי מומלץ לאשר הרשאת לוח שנה (calendar.read) בהגדרות אוצריא.',
+        }));
+      }
+      addSwitchRow(
+        dailySec.body,
+        'טעינה מוקדמת מועדפת לספרי הלימוד היומי',
+        'מזהה את לימוד היום לפי הלוח העברי ומוריד מראש הערות פעילות לזיכרון המקומי',
+        s.dailyStudySyncEnabled !== false,
+        false,
+        async function (v) { s.dailyStudySyncEnabled = v; await saveAndRefresh(false); }
+      );
+
+      var tracksGroup = el('div', { className: 'chip-group' });
+      [
+        ['dafYomi', 'דף יומי (בבלי)'],
+        ['parasha', 'פרשת השבוע'],
+        ['mishnaYomit', 'משנה יומית'],
+        ['rambam', 'רמב"ם יומי'],
+      ].forEach(function (pair) {
+        var tracks = s.dailyStudyTracks || {};
+        var isOn = pair[0] === 'rambam' ? (tracks[pair[0]] === true) : (tracks[pair[0]] !== false);
+        tracksGroup.appendChild(el('button', {
+          type: 'button',
+          className: 'chip-btn' + (isOn ? ' active' : ''),
+          text: pair[1],
+          onClick: async function () {
+            s.dailyStudyTracks = s.dailyStudyTracks || {};
+            s.dailyStudyTracks[pair[0]] = !isOn;
+            await saveAndRefresh(false);
+            renderSettingsPanel();
+          },
+        }));
+      });
+      dailySec.body.appendChild(el('div', { className: 'settings-row stacked' }, [
+        el('div', { className: 'settings-row-title', text: 'סדרי לימוד למעקב יומי' }),
+        tracksGroup,
+      ]));
+
+      addSegmentedRow(
+        dailySec.body,
+        'תדירות הורדה מוקדמת ברקע לספרים מועדפים',
+        '',
+        String(s.prioritySyncIntervalMin || 15),
+        [['15', 'כל 15 דק׳'], ['30', 'כל 30 דק׳'], ['60', 'כל שעה']],
+        async function (v) { s.prioritySyncIntervalMin = Number(v); await saveAndRefresh(false); }
+      );
+
+      var syncMeta = (CN.sync && CN.sync.getCachedSyncMeta) ? await CN.sync.getCachedSyncMeta() : null;
+      var statusText = (syncMeta && syncMeta.syncedAt)
+        ? ('סנכרון אחרון: ' + CN.ui.formatRelativeTime(syncMeta.syncedAt) +
+           ' · ' + Number(syncMeta.booksSynced || 0) + ' ספרים, ' + Number(syncMeta.sectionsCached || 0) + ' קטעים נטענו' +
+           (syncMeta.targets && syncMeta.targets.length > 0 ? (' (' + syncMeta.targets.map(function (t) { return t.label; }).slice(0, 4).join(', ') + ')') : ''))
+        : 'טרם בוצע סנכרון לימוד יומי ידני או אוטומטי.';
+
+      dailySec.body.appendChild(el('div', { className: 'settings-row stacked' }, [
+        el('div', { className: 'settings-sync-meta', text: statusText }),
+        el('div', { className: 'card-actions-group' }, [
+          el('button', {
+            type: 'button',
+            className: 'btn-primary',
+            disabled: prioritySyncRunning,
+            text: prioritySyncRunning ? 'מסנכרן...' : 'סנכרן לימוד יומי וספרים מועדפים כעת',
+            onClick: async function () {
+              if (!CN.sync || prioritySyncRunning) return;
+              prioritySyncRunning = true;
+              renderSettingsPanel();
+              try {
+                var metaRes = await CN.sync.syncPriorityBooksIfDue({
+                  force: true,
+                  settings: s,
+                  identity: CN.state.identity,
+                  permissions: perms,
+                });
+                if (metaRes && Array.isArray(metaRes.targets)) {
+                  CN.state.dailyTargets = metaRes.targets;
+                }
+                CN.ui.showToast('הסנכרון הושלם (' + Number((metaRes && metaRes.sectionsCached) || 0) + ' קטעים עודכנו)');
+              } finally {
+                prioritySyncRunning = false;
+                CN.app.refreshCurrentScreen();
+                renderSettingsPanel();
               }
             },
           }),
         ]),
       ]));
+      body.appendChild(dailySec.card);
 
-      accBody.appendChild(el('div', { className: 'settings-row' }, [
+      var favSec = createCard('ספרים מועדפים נוספים לסנכרון מהיר');
+      var favInput = el('input', { className: 'input', type: 'text', placeholder: 'שם ספר מועדף (למשל: שולחן ערוך אורח חיים)...' });
+      var currentBookTitle = (CN.state.context && (CN.state.context.titleHint || CN.state.context.bookId)) || '';
+      var favChips = el('div', { className: 'chip-group' });
+      (s.priorityBooks || []).forEach(function (bTitle) {
+        favChips.appendChild(el('button', {
+          type: 'button',
+          className: 'chip-btn active',
+          text: bTitle + ' ×',
+          onClick: async function () {
+            s.priorityBooks = s.priorityBooks.filter(function (x) { return x !== bTitle; });
+            await saveAndRefresh(false);
+            renderSettingsPanel();
+          },
+        }));
+      });
+      var favActions = [
+        favInput,
+        el('button', {
+          type: 'button',
+          className: 'btn-secondary',
+          text: 'הוסף ספר',
+          onClick: async function () {
+            var val = favInput.value.trim();
+            if (val && s.priorityBooks.indexOf(val) === -1) {
+              s.priorityBooks.push(val);
+              await saveAndRefresh(false);
+              renderSettingsPanel();
+            }
+          },
+        }),
+      ];
+      if (currentBookTitle && (s.priorityBooks || []).indexOf(currentBookTitle) === -1) {
+        favActions.push(el('button', {
+          type: 'button',
+          className: 'btn-secondary',
+          text: '+ הוסף ספר נוכחי (' + currentBookTitle.slice(0, 20) + ')',
+          onClick: async function () {
+            s.priorityBooks.push(currentBookTitle);
+            await saveAndRefresh(false);
+            renderSettingsPanel();
+          },
+        }));
+      }
+      favSec.body.appendChild(el('div', { className: 'settings-row stacked' }, [
+        el('div', { className: 'settings-row-title', text: 'ספרים שיתעדכנו בקדימות גבוהה ויוחזקו במטמון המקומי' }),
+        el('div', { className: 'card-actions-group' }, favActions),
+        (s.priorityBooks && s.priorityBooks.length > 0)
+          ? favChips
+          : el('div', { className: 'settings-row-subtitle', text: 'אין ספרים מועדפים מותאמים אישית' }),
+      ]));
+      body.appendChild(favSec.card);
+
+      var cacheSec = createCard('מטמון מקומי ונתונים שמורים');
+      var secCacheObj = CN.storage.loadSectionCache ? await CN.storage.loadSectionCache() : { order: [] };
+      var cachedCount = Array.isArray(secCacheObj.order) ? secCacheObj.order.length : 0;
+      cacheSec.body.appendChild(el('div', { className: 'settings-row' }, [
         el('div', {}, [
-          el('div', { className: 'settings-row-title', text: 'קוד שחזור' }),
-          el('div', { className: 'settings-row-subtitle', text: 'הצגה והעתקה אחרי אישור, או ייבוא ממכשיר אחר' }),
+          el('div', { className: 'settings-row-title', text: 'איפוס מטמון מקומי (' + cachedCount + ' / ' + CN.config.MAX_CACHED_LOCATIONS + ' קטעים שמורים)' }),
+          el('div', { className: 'settings-row-subtitle', text: 'מנקה הערות שמורות לצפייה אופליין. הטיוטות האישיות נשארות' }),
         ]),
         el('button', {
           type: 'button',
           className: 'btn-secondary',
-          text: 'הצג',
+          text: 'נקה מטמון',
           onClick: async function () {
-            var ok = true;
-            try {
-              var c = await global.Otzaria.call('ui.showConfirm', {
-                title: 'הצגת קוד שחזור',
-                message: 'קוד זה מאפשר להעביר את החשבון שלך למכשיר אחר. להציג כעת?',
-                confirmText: 'הצג',
-                cancelText: 'בטל',
-              });
-              ok = Boolean(c && c.success && c.data === true);
-            } catch (_) { /* ok */ }
-            if (ok) {
-              openRecoveryDisplayModal(CN.state.identity.recoveryCode || 'לא זמין במכשיר זה');
-            }
-          },
-        }),
-      ]));
-
-      accBody.appendChild(el('div', { className: 'settings-row' }, [
-        el('div', { className: 'settings-row-title', text: 'ייצוא הנתונים שלי (JSON)' }),
-        el('button', {
-          type: 'button',
-          className: 'btn-secondary',
-          text: 'ייצא',
-          onClick: exportMyData,
-        }),
-      ]));
-
-      accBody.appendChild(el('div', { className: 'settings-row' }, [
-        el('div', { className: 'settings-row-title', text: 'ניתוק המכשיר' }),
-        el('button', {
-          type: 'button',
-          className: 'btn-secondary',
-          text: 'נתק',
-          onClick: async function () {
-            await CN.storage.remove(CN.storage.KEYS.IDENTITY);
-            CN.state.identity = null;
-            CN.ui.showToast('המכשיר נותק. חזרה דורשת קוד שחזור');
-            CN.app.renderChrome();
+            await CN.storage.clearSectionCache();
+            CN.ui.showToast('המטמון המקומי נוקה');
             renderSettingsPanel();
           },
         }),
       ]));
-
-      accBody.appendChild(el('div', { className: 'settings-row' }, [
-        el('div', { className: 'settings-row-title', text: 'מחיקת חשבון' }),
-        el('button', {
-          type: 'button',
-          className: 'action-btn danger',
-          text: 'מחק חשבון',
-          onClick: confirmDeleteAccount,
-        }),
-      ]));
-    } else {
-      accBody.appendChild(el('div', { className: 'settings-row' }, [
-        el('div', { className: 'settings-row-title', text: 'ייבוא זהות ממכשיר אחר' }),
-        el('button', {
-          type: 'button',
-          className: 'btn-secondary',
-          text: 'הזן קוד שחזור',
-          onClick: function () {
-            closeSettingsPanel();
-            CN.onboarding.openRecoveryImportModal();
-          },
-        }),
-      ]));
+      body.appendChild(cacheSec.card);
     }
 
-    accBody.appendChild(el('div', { className: 'settings-row' }, [
-      el('div', {}, [
-        el('div', { className: 'settings-row-title', text: 'ייבוא מהערות אישיות' }),
-        el('div', { className: 'settings-row-subtitle', text: 'מעבר מהיר על כל ההערות שלך באוצריא ובחירת אילו להעלות לקהילה' }),
-      ]),
-      el('button', {
-        type: 'button',
-        className: 'btn-secondary',
-        text: 'פתח ייבוא',
-        onClick: function () {
-          closeSettingsPanel();
-          CN.app.navigate('import');
-        },
-      }),
-    ]));
+    // ── TAB 4: Notifications & Shabbat Quiet Mode ───────────────────────────
+    else if (activeTab === 'notifications') {
+      var chSec = createCard('ערוצי התראות ותזמון');
+      addSwitchRow(chSec.body, 'התראות בתוך אוצריא', 'תגים והודעות על פעילות בשרשורים שלך', s.inAppNotifications !== false, false, async function (v) {
+        s.inAppNotifications = v; await saveAndRefresh(false);
+      });
+      addSwitchRow(
+        chSec.body,
+        'התראת מערכת (Windows / OS)',
+        hasSysNotifPerm ? 'פועל כשאוצריא פתוחה' : 'כבוי כי הרשאת התראות מערכת אינה מאושרת בהגדרות אוצריא',
+        Boolean(s.systemNotifications && hasSysNotifPerm),
+        !hasSysNotifPerm,
+        async function (v) { s.systemNotifications = v; await saveAndRefresh(false); }
+      );
+      addSegmentedRow(
+        chSec.body,
+        'תדירות בדיקת הודעות ברקע',
+        hasBgPerm ? '' : 'דורש הרשאת ריצת רקע (app.run_on_startup)',
+        String(s.bgCheckFrequencyMin),
+        [['30', 'כל 30 דקות'], ['60', 'כל שעה'], ['0', 'רק בעליית אוצריא']],
+        async function (v) {
+          if (!hasBgPerm) return;
+          s.bgCheckFrequencyMin = Number(v);
+          await saveAndRefresh(false);
+        }
+      );
+      addSwitchRow(chSec.body, 'מצב שקט בשבת ויום טוב', 'לא להציג התראות קופצות בשבתות ובמועדי ישראל', s.shabbatQuietMode !== false, false, async function (v) {
+        s.shabbatQuietMode = v; await saveAndRefresh(false);
+      });
+      body.appendChild(chSec.card);
 
-    accBody.appendChild(el('div', { className: 'settings-row' }, [
-      el('div', {}, [
-        el('div', { className: 'settings-row-title', text: 'איפוס מטמון מקומי' }),
-        el('div', { className: 'settings-row-subtitle', text: 'מנקה הערות שמורות. הטיוטות נשארות' }),
-      ]),
-      el('button', {
-        type: 'button',
-        className: 'btn-secondary',
-        text: 'נקה מטמון',
-        onClick: async function () {
-          await CN.storage.clearSectionCache();
-          CN.ui.showToast('המטמון המקומי נוקה');
-        },
-      }),
-    ]));
+      var tpSec = createCard('סינון סוגי התראות');
+      var ntGroup = el('div', { className: 'chip-group' });
+      [
+        ['reply', 'תגובה להערתי'],
+        ['answer', 'תשובה לשאלתי'],
+        ['accepted', 'תשובה מקובלת'],
+        ['moderation', 'החלטת מודרציה'],
+      ].forEach(function (pair) {
+        var active = s.notifyTypes[pair[0]] !== false;
+        ntGroup.appendChild(el('button', {
+          type: 'button',
+          className: 'chip-btn' + (active ? ' active' : ''),
+          text: pair[1],
+          onClick: async function () {
+            s.notifyTypes[pair[0]] = !active;
+            await saveAndRefresh(false);
+            renderSettingsPanel();
+          },
+        }));
+      });
+      tpSec.body.appendChild(el('div', { className: 'settings-row stacked' }, [
+        el('div', { className: 'settings-row-title', text: 'אילו עדכונים ישלחו התראה?' }),
+        ntGroup,
+      ]));
+      body.appendChild(tpSec.card);
+    }
 
-    // Optional server URL setting for staging/self-hosting
-    var srvInput = el('input', {
-      className: 'input',
-      type: 'url',
-      dir: 'ltr',
-      value: s.apiBaseUrl || '',
-      placeholder: CN.config.DEFAULT_API_BASE,
-    });
-    accBody.appendChild(el('div', { className: 'settings-row stacked' }, [
-      el('div', { className: 'settings-row-title', text: 'כתובת שרת הקהילה (מתקדם)' }),
-      el('div', { className: 'card-actions-group' }, [
-        srvInput,
+    // ── TAB 5: Account, Backup, Importer, Server & Permissions ──────────────
+    else if (activeTab === 'account') {
+      var accSec = createCard('חשבון, זהות וגיבוי');
+      if (CN.state.identity && CN.state.identity.userId) {
+        var renameInput = el('input', { className: 'input', type: 'text', value: CN.state.identity.displayName });
+        accSec.body.appendChild(el('div', { className: 'settings-row stacked' }, [
+          el('div', { className: 'settings-row-title', text: 'שם תצוגה (שינוי עד פעם בחודש)' }),
+          el('div', { className: 'card-actions-group' }, [
+            renameInput,
+            el('button', {
+              type: 'button',
+              className: 'btn-secondary',
+              text: CN.ui.t('שמור'),
+              onClick: async function () {
+                var res = await CN.api.request('PATCH', '/v1/me', {
+                  auth: true,
+                  identity: CN.state.identity,
+                  settings: s,
+                  bodyObj: { displayName: renameInput.value.trim() },
+                });
+                if (res.ok && res.data) {
+                  CN.state.identity.displayName = res.data.displayName;
+                  await CN.storage.set(CN.storage.KEYS.IDENTITY, CN.state.identity);
+                  CN.ui.showToast('שם התצוגה עודכן');
+                  renderSettingsPanel();
+                } else {
+                  CN.ui.showToast((res.data && res.data.error && res.data.error.message) || 'לא ניתן לעדכן שם');
+                }
+              },
+            }),
+          ]),
+        ]));
+
+        accSec.body.appendChild(el('div', { className: 'settings-row' }, [
+          el('div', {}, [
+            el('div', { className: 'settings-row-title', text: 'קוד שחזור' }),
+            el('div', { className: 'settings-row-subtitle', text: 'הצגה והעתקה אחרי אישור, או ייבוא ממכשיר אחר' }),
+          ]),
+          el('button', {
+            type: 'button',
+            className: 'btn-secondary',
+            text: 'הצג',
+            onClick: async function () {
+              var ok = true;
+              try {
+                var c = await global.Otzaria.call('ui.showConfirm', {
+                  title: 'הצגת קוד שחזור',
+                  message: 'קוד זה מאפשר להעביר את החשבון שלך למכשיר אחר. להציג כעת?',
+                  confirmText: 'הצג',
+                  cancelText: 'בטל',
+                });
+                ok = Boolean(c && c.success && c.data === true);
+              } catch (_) { /* ok */ }
+              if (ok) {
+                openRecoveryDisplayModal(CN.state.identity.recoveryCode || 'לא זמין במכשיר זה');
+              }
+            },
+          }),
+        ]));
+
+        accSec.body.appendChild(el('div', { className: 'settings-row' }, [
+          el('div', { className: 'settings-row-title', text: 'ייצוא הנתונים שלי (JSON)' }),
+          el('button', {
+            type: 'button',
+            className: 'btn-secondary',
+            text: 'ייצא',
+            onClick: exportMyData,
+          }),
+        ]));
+
+        accSec.body.appendChild(el('div', { className: 'settings-row' }, [
+          el('div', { className: 'settings-row-title', text: 'ניתוק המכשיר' }),
+          el('button', {
+            type: 'button',
+            className: 'btn-secondary',
+            text: 'נתק',
+            onClick: async function () {
+              await CN.storage.remove(CN.storage.KEYS.IDENTITY);
+              CN.state.identity = null;
+              CN.ui.showToast('המכשיר נותק. חזרה דורשת קוד שחזור');
+              CN.app.renderChrome();
+              renderSettingsPanel();
+            },
+          }),
+        ]));
+
+        accSec.body.appendChild(el('div', { className: 'settings-row' }, [
+          el('div', { className: 'settings-row-title', text: 'מחיקת חשבון' }),
+          el('button', {
+            type: 'button',
+            className: 'action-btn danger',
+            text: 'מחק חשבון',
+            onClick: confirmDeleteAccount,
+          }),
+        ]));
+      } else {
+        accSec.body.appendChild(el('div', { className: 'settings-row' }, [
+          el('div', {}, [
+            el('div', { className: 'settings-row-title', text: 'ייבוא זהות ממכשיר אחר' }),
+            el('div', { className: 'settings-row-subtitle', text: 'כבר נרשמת בעבר? הזן את קוד השחזור כדי לשחזר את חשבונך' }),
+          ]),
+          el('button', {
+            type: 'button',
+            className: 'btn-secondary',
+            text: 'הזן קוד שחזור',
+            onClick: function () {
+              closeSettingsPanel();
+              CN.onboarding.openRecoveryImportModal();
+            },
+          }),
+        ]));
+      }
+      body.appendChild(accSec.card);
+
+      var toolsSec = createCard('ייבוא, קיצורי מקשים ושרת הקהילה');
+      toolsSec.body.appendChild(el('div', { className: 'settings-row' }, [
+        el('div', {}, [
+          el('div', { className: 'settings-row-title', text: 'ייבוא מהערות אישיות' }),
+          el('div', { className: 'settings-row-subtitle', text: 'מעבר מהיר על כל ההערות שלך באוצריא ובחירת אילו להעלות לקהילה' }),
+        ]),
         el('button', {
           type: 'button',
           className: 'btn-secondary',
-          text: CN.ui.t('שמור'),
-          onClick: async function () {
-            s.apiBaseUrl = srvInput.value.trim();
-            await saveAndRefresh(false);
-            CN.ui.showToast('כתובת השרת נשמרה');
+          text: 'פתח ייבוא',
+          onClick: function () {
+            closeSettingsPanel();
+            CN.app.navigate('import');
           },
         }),
-      ]),
-    ]));
-
-    accCard.appendChild(accBody);
-    body.appendChild(accCard);
-
-    // 6. Read-only Permissions Status
-    var permCard = el('section', { className: 'settings-card' }, [
-      el('h3', { className: 'settings-card-title', text: 'מצב הרשאות (לקריאה בלבד)' }),
-    ]);
-    var permBody = el('div', { className: 'settings-card-body' });
-    [
-      ['app.run_on_startup', 'ריצת רקע', 'מאפשרת בדיקת התראות תקופתית וסימון בטקסט בפתיחת ספרים'],
-      ['notifications.system', 'התראות מערכת', 'מאפשרת התראות של מערכת ההפעלה כשאוצריא פתוחה'],
-      ['reader.highlight', 'סימון בטקסט', 'מאפשרת הדגשת ציטוטים בטור הטקסט הראשי וכפתור "הצג בטקסט"'],
-    ].forEach(function (item) {
-      var granted = perms.indexOf(item[0]) !== -1;
-      permBody.appendChild(el('div', { className: 'settings-row' }, [
-        el('div', {}, [
-          el('div', { className: 'settings-row-title', text: item[1] }),
-          el('div', { className: 'settings-row-subtitle', text: item[2] }),
-        ]),
-        el('span', { className: 'tag ' + (granted ? 'primary' : ''), text: granted ? 'מופעל' : 'כבוי' }),
       ]));
-    });
-    permBody.appendChild(el('div', { className: 'settings-row' }, [
-      el('div', {
-        className: 'settings-row-subtitle',
-        text: 'לשינוי הרשאות: הגדרות ← כלים ← תוספים מותקנים באוצריא.',
-      }),
-    ]));
-    permCard.appendChild(permBody);
-    body.appendChild(permCard);
+
+      toolsSec.body.appendChild(el('div', { className: 'settings-row' }, [
+        el('div', {}, [
+          el('div', { className: 'settings-row-title', text: 'קיצור מקלדת להוספת הערה' }),
+          el('div', { className: 'settings-row-subtitle', text: 'ברירת מחדל: Ctrl+Alt+N. לשינוי: הגדרות ← קיצורי מקשים ← קיצורי תוספים באוצריא' }),
+        ]),
+      ]));
+
+      var srvInput = el('input', {
+        className: 'input',
+        type: 'url',
+        dir: 'ltr',
+        value: s.apiBaseUrl || '',
+        placeholder: CN.config.DEFAULT_API_BASE,
+      });
+      toolsSec.body.appendChild(el('div', { className: 'settings-row stacked' }, [
+        el('div', {}, [
+          el('div', { className: 'settings-row-title', text: 'כתובת שרת הקהילה (מתקדם)' }),
+          el('div', { className: 'settings-row-subtitle', text: 'השאר ריק לעבודה מול שרת הקהילה הרשמי: ' + CN.config.DEFAULT_API_BASE }),
+        ]),
+        el('div', { className: 'card-actions-group' }, [
+          srvInput,
+          el('button', {
+            type: 'button',
+            className: 'btn-secondary',
+            text: CN.ui.t('שמור'),
+            onClick: async function () {
+              s.apiBaseUrl = srvInput.value.trim();
+              await saveAndRefresh(false);
+              CN.ui.showToast('כתובת השרת נשמרה');
+              renderSettingsPanel();
+            },
+          }),
+          el('button', {
+            type: 'button',
+            className: 'btn-secondary',
+            text: 'איפוס לברירת מחדל',
+            onClick: async function () {
+              srvInput.value = '';
+              s.apiBaseUrl = '';
+              await saveAndRefresh(false);
+              CN.ui.showToast('אופס לשרת הרשמי');
+              renderSettingsPanel();
+            },
+          }),
+        ]),
+      ]));
+      body.appendChild(toolsSec.card);
+
+      var permSec = createCard('מצב הרשאות (לקריאה בלבד)');
+      [
+        ['app.run_on_startup', 'ריצת רקע', 'מאפשרת בדיקת התראות תקופתית, סנכרון לימוד יומי וסימון בטקסט בפתיחת ספרים'],
+        ['notifications.system', 'התראות מערכת', 'מאפשרת התראות של מערכת ההפעלה כשאוצריא פתוחה'],
+        ['reader.highlight', 'סימון בטקסט', 'מאפשרת הדגשת ציטוטים בטור הטקסט הראשי וכפתור "הצג בטקסט"'],
+        ['calendar.read', 'לוח שנה עברי', 'מאפשרת זיהוי אוטומטי של הדף היומי, פרשת השבוע, שבת ומועדים'],
+      ].forEach(function (item) {
+        var granted = perms.indexOf(item[0]) !== -1;
+        permSec.body.appendChild(el('div', { className: 'settings-row' }, [
+          el('div', {}, [
+            el('div', { className: 'settings-row-title', text: item[1] }),
+            el('div', { className: 'settings-row-subtitle', text: item[2] }),
+          ]),
+          el('span', { className: 'tag ' + (granted ? 'primary' : ''), text: granted ? 'מופעל' : 'כבוי' }),
+        ]));
+      });
+      permSec.body.appendChild(el('div', { className: 'settings-row' }, [
+        el('div', {
+          className: 'settings-row-subtitle',
+          text: 'לשינוי הרשאות: הגדרות ← כלים ← תוספים מותקנים באוצריא.',
+        }),
+      ]));
+      body.appendChild(permSec.card);
+    }
   }
 
   async function exportMyData() {

@@ -9,6 +9,8 @@
     WORKED_BOOKS: 'worked_books:v1',
     LAST_LOCATION: 'last_location:v1',
     BG_CHECK_AT: 'bg:last_inbox_check:v1',
+    PRIORITY_SYNC_META: 'sync:priority_meta:v1',
+    BOOK_UID_MAP: 'cache:book_uid_map:v1',
     VISIT_COUNT: 'meta:visits:v1',
     BG_PROMPT_DISMISSED: 'meta:bg_prompt_dismissed:v1',
     INBOX_LAST_SEQ: 'inbox:last_seq:v1',
@@ -49,6 +51,16 @@
       systemNotifications: false,
       bgCheckFrequencyMin: 30,           // 30 | 60 | 0 (startup only)
       shabbatQuietMode: true,
+      // Sync & Daily Study Prioritization
+      sectionRefreshMin: 3,              // 1 | 3 | 5 | 0 (manual/on-navigate only)
+      priorityRefreshMin: 1,             // 1 | 2 | 0
+      dailyStudySyncEnabled: true,
+      dailyStudyTracks: { dafYomi: true, parasha: true, mishnaYomit: true, rambam: false },
+      prioritySyncIntervalMin: 15,       // 15 | 30 | 60
+      priorityBooks: [],                 // string[] of book titles
+      // Context Menu Display
+      contextMenuFullSubmenus: true,     // nested cascaded submenus showing full note body
+      contextMenuMaxNotes: 12,           // 8 | 12 | 20 primary notes per level
       // Advanced / server endpoint override (for testing/self-hosting)
       apiBaseUrl: '',
     };
@@ -60,8 +72,10 @@
     var merged = Object.assign({}, base, raw);
     merged.contentTypes = Object.assign({}, base.contentTypes, raw.contentTypes || {});
     merged.notifyTypes = Object.assign({}, base.notifyTypes, raw.notifyTypes || {});
+    merged.dailyStudyTracks = Object.assign({}, base.dailyStudyTracks, raw.dailyStudyTracks || {});
     if (!Array.isArray(merged.hiddenWords)) merged.hiddenWords = [];
     if (!Array.isArray(merged.blockedAuthors)) merged.blockedAuthors = [];
+    if (!Array.isArray(merged.priorityBooks)) merged.priorityBooks = [];
     merged.schemaVersion = 1;
     return merged;
   }
@@ -200,6 +214,7 @@
     remove: remove,
     loadSettings: loadSettings,
     saveSettings: saveSettings,
+    loadSectionCache: loadSectionCache,
     getCachedSectionNotes: getCachedSectionNotes,
     putCachedSectionNotes: putCachedSectionNotes,
     clearSectionCache: clearSectionCache,

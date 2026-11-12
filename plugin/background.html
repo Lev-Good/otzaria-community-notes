@@ -10,6 +10,7 @@
   <script src="js/crypto.js"></script>
   <script src="js/anchors.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/highlights.js"></script>
   <script src="js/menus.js"></script>
 </head>
@@ -139,6 +140,7 @@
               notes: lastNotes,
               selectedText: selectedText || '',
               permissions: permissions,
+              settings: settings,
             });
           }
 
@@ -175,6 +177,14 @@
         try {
           await checkInboxAndNotify();
           await CN.storage.set(CN.storage.KEYS.BG_CHECK_AT, Date.now());
+          if (CN.sync && CN.sync.syncPriorityBooksIfDue) {
+            await CN.sync.syncPriorityBooksIfDue({
+              force: false,
+              settings: settings,
+              identity: identity,
+              permissions: permissions,
+            });
+          }
           var stRes = await Otzaria.call('reader.getCurrentState');
           if (stRes && stRes.success && stRes.data && (stRes.data.bookUid || stRes.data.currentBookId || stRes.data.currentBook)) {
             var stUid = stRes.data.bookUid
@@ -199,7 +209,7 @@
         settings = await CN.storage.loadSettings();
         identity = await CN.storage.get(CN.storage.KEYS.IDENTITY, null);
 
-        // Throttled periodic inbox check on reading navigation
+        // Throttled periodic inbox & priority-book prefetch on reading navigation
         var freqMin = Number(settings.bgCheckFrequencyMin);
         if (freqMin > 0) {
           var lastCheck = Number(await CN.storage.get(CN.storage.KEYS.BG_CHECK_AT, 0));
@@ -207,6 +217,14 @@
             await CN.storage.set(CN.storage.KEYS.BG_CHECK_AT, Date.now());
             await checkInboxAndNotify();
           }
+        }
+        if (CN.sync && CN.sync.syncPriorityBooksIfDue) {
+          CN.sync.syncPriorityBooksIfDue({
+            force: false,
+            settings: settings,
+            identity: identity,
+            permissions: permissions,
+          }).catch(function () {});
         }
 
         // Sync inline highlights and dynamic context/toolbar menus if permitted
@@ -246,6 +264,7 @@
                 notes: lastNotes,
                 selectedText: selText,
                 permissions: permissions,
+                settings: settings,
               });
             }
           } catch (_) { /* ignore */ }

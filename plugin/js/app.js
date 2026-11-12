@@ -3,6 +3,8 @@
   var CN = (global.CN = global.CN || {});
 
   var foregroundPollTimer = null;
+  var sectionRefreshTimer = null;
+  var lastSectionFetchAt = 0;
 
   async function init() {
     bindStaticChrome();
@@ -104,6 +106,7 @@
             notes: notesForMenu,
             selectedText: selText,
             permissions: CN.state.permissions,
+            settings: CN.state.settings,
           });
         } catch (_) { /* ignore */ }
       }, 120);
@@ -216,6 +219,34 @@
 
     if (foregroundPollTimer) clearInterval(foregroundPollTimer);
     foregroundPollTimer = setInterval(refreshInboxBadge, CN.config.INBOX_FOREGROUND_POLL_MS);
+
+    if (sectionRefreshTimer) clearInterval(sectionRefreshTimer);
+    sectionRefreshTimer = setInterval(function () {
+      if (CN.state.isOnline === false) return;
+      if (CN.state.screen !== 'section' && CN.state.screen !== 'questions') return;
+      var c = CN.state.context;
+      if (!c || !c.bookUid || CN.state.isPdf) return;
+      var intervalMs = (CN.sync && CN.sync.getEffectiveRefreshIntervalMs)
+        ? CN.sync.getEffectiveRefreshIntervalMs(c.titleHint || c.bookId, c.bookUid, CN.state.settings, CN.state.dailyTargets)
+        : (Number(CN.state.settings.sectionRefreshMin || 3) * 60 * 1000);
+      if (intervalMs > 0 && (Date.now() - lastSectionFetchAt >= intervalMs)) {
+        if (CN.state.screen === 'section') loadSectionNotes({ forceRefresh: true });
+      }
+    }, 30000);
+
+    if (CN.sync && CN.sync.syncPriorityBooksIfDue) {
+      CN.sync.syncPriorityBooksIfDue({
+        force: false,
+        settings: CN.state.settings,
+        identity: CN.state.identity,
+        permissions: CN.state.permissions,
+      }).then(function (meta) {
+        if (meta && Array.isArray(meta.targets)) {
+          CN.state.dailyTargets = meta.targets;
+          renderChrome();
+        }
+      }).catch(function () {});
+    }
   }
 
   async function refreshOtzariaDisplayPrefs() {
@@ -532,6 +563,16 @@
             text: '״' + CN.ui.formatQuoteText(ctx.anchor.quote) + '״',
           }));
         }
+        if (CN.sync && CN.sync.isBookPriority) {
+          var pri = CN.sync.isBookPriority(ctx.titleHint || ctx.bookId, ctx.bookUid, CN.state.settings, CN.state.dailyTargets);
+          if (pri && pri.isPriority) {
+            strip.appendChild(el('span', {
+              className: 'tag primary',
+              title: 'סנכרון מואץ פעיל: ' + pri.reason,
+              text: '⚡ ' + pri.reason,
+            }));
+          }
+        }
       }
     }
 
@@ -612,6 +653,7 @@
           notes: cached.items,
           selectedText: (ctx.anchor && ctx.anchor.quote) || '',
           permissions: CN.state.permissions,
+          settings: CN.state.settings,
         });
       }
       if (CN.highlights && CN.highlights.syncSectionHighlights && CN.state.permissions.indexOf('reader.highlight') !== -1) {
@@ -648,6 +690,7 @@
       });
       if (!res.ok) throw new Error('LOAD_FAILED');
       var items = (res.data && res.data.items) || [];
+      lastSectionFetchAt = Date.now();
       CN.state.sectionNotes = items;
       CN.state.sectionError = null;
       CN.state.sectionCacheDate = Date.now();
@@ -658,6 +701,7 @@
           notes: items,
           selectedText: (ctx.anchor && ctx.anchor.quote) || '',
           permissions: CN.state.permissions,
+          settings: CN.state.settings,
         });
       }
       if (CN.highlights && CN.highlights.syncSectionHighlights && CN.state.permissions.indexOf('reader.highlight') !== -1) {

@@ -198,6 +198,7 @@ test('All plugin JS modules parse cleanly and register expected namespaces', () 
   });
   const extraFiles = [
     'js/api.js',
+    'js/sync.js',
     'js/highlights.js',
     'js/menus.js',
     'js/ui-cards.js',
@@ -214,6 +215,7 @@ test('All plugin JS modules parse cleanly and register expected namespaces', () 
     vm.runInContext(code, context, { filename: f });
   }
   assert.ok(context.CN.api.request);
+  assert.ok(context.CN.sync.syncPriorityBooksIfDue);
   assert.ok(context.CN.highlights.syncSectionHighlights);
   assert.ok(context.CN.menus.syncMenusForSection);
   assert.ok(context.CN.cards.buildNoteCard);
@@ -452,14 +454,42 @@ test('Client dynamic context submenu & split toolbar builder (CN.menus)', async 
   assert.ok(ctxCall.payload.title.includes('2 על הבחירה'));
   assert.equal(ctxCall.payload.children[0].id, 'show-notes-open-all');
   assert.equal(ctxCall.payload.children[1].type, 'separator');
-  assert.equal(ctxCall.payload.children[2].param.action, 'open-thread');
-  assert.equal(ctxCall.payload.children[2].param.rootId, 'n-match');
+  // Each note entry defaults to a cascaded submenu showing full note lines
+  const firstNoteItem = ctxCall.payload.children[2];
+  assert.equal(firstNoteItem.type, 'submenu');
+  assert.equal(firstNoteItem.param.action, 'open-thread');
+  assert.equal(firstNoteItem.param.rootId, 'n-match');
+  assert.ok(firstNoteItem.children.some((c) => String(c.title).includes('ביאור ממוקד על הבחירה')));
+  assert.ok(ctxCall.payload.children[3].children.some((c) => String(c.title).includes('בטקסט התפריט העמוס')));
 
   const tbCall = calls.find((c) => c.method === 'reader.addToolbarItem');
   assert.ok(tbCall, 'expected toolbar registration');
   assert.equal(tbCall.payload.type, 'split');
   assert.equal(tbCall.payload.children[0].param.action, 'open-all');
   assert.equal(tbCall.payload.children[1].param.action, 'open-thread');
+
+  // Overflow pagination & compact mode check
+  const manyNotes = Array.from({ length: 15 }, (_, idx) => ({
+    id: 'n-many-' + idx,
+    status: 'published',
+    tier: 'normal',
+    kind: 'note',
+    authorName: 'לומד ' + idx,
+    body: 'תוכן מלא של הערה מספר ' + idx + ' לבדיקת תת תפריט עוד הערות',
+    upCount: 1,
+  }));
+  calls.length = 0;
+  await context.CN.menus.syncMenusForSection({
+    notes: manyNotes,
+    selectedText: '',
+    permissions: ['reader.context_menu'],
+    settings: { contextMenuFullSubmenus: true, contextMenuMaxNotes: 12 },
+  });
+  const overflowCtx = calls.find((c) => c.method === 'reader.addContextMenuItem').payload;
+  const moreMenu = overflowCtx.children.find((c) => c.id === 'cn-note-more');
+  assert.ok(moreMenu, 'expected overflow submenu for >12 notes');
+  assert.equal(moreMenu.type, 'submenu');
+  assert.ok(moreMenu.title.includes('(3)'));
 
   calls.length = 0;
   await context.CN.menus.syncMenusForSection({
@@ -469,4 +499,63 @@ test('Client dynamic context submenu & split toolbar builder (CN.menus)', async 
   });
   assert.equal(calls.find((c) => c.method === 'reader.addContextMenuItem').payload.type, 'item');
   assert.equal(calls.find((c) => c.method === 'reader.addToolbarItem').payload.type, 'button');
+});
+
+test('Client Daily Study & Priority Books sync target parsing and prefetching (CN.sync)', async () => {
+  const { context } = loadPluginModules();
+  vm.runInContext(fs.readFileSync(path.join(pluginDir, 'js/api.js'), 'utf8'), context, { filename: 'js/api.js' });
+  vm.runInContext(fs.readFileSync(path.join(pluginDir, 'js/sync.js'), 'utf8'), context, { filename: 'js/sync.js' });
+
+  const settings = context.CN.storage.defaultSettings();
+  settings.priorityBooks = ['מסילת ישרים'];
+  const targets = Array.from(context.CN.sync.parseDailyStudyTargetsFromCalendar(
+    { dafYomi: 'ברכות דף ב', parasha: 'פרשת ויצא' },
+    [],
+    settings
+  ));
+  assert.ok(targets.some((t) => t.source === 'dafYomi' && t.bookQuery === 'ברכות' && t.refHint === 'ב'));
+  assert.ok(targets.some((t) => t.source === 'parasha' && t.bookQuery === 'בראשית' && t.refHint === 'ויצא'));
+  assert.ok(targets.some((t) => t.source === 'custom' && t.bookQuery === 'מסילת ישרים'));
+
+  const priMatch = context.CN.sync.isBookPriority('מסכת ברכות', 'id:10', settings, targets);
+  assert.equal(priMatch.isPriority, true);
+  assert.equal(context.CN.sync.getEffectiveRefreshIntervalMs('ברכות', 'id:10', settings, targets), 60000);
+  assert.equal(context.CN.sync.getEffectiveRefreshIntervalMs('רמב"ן על התורה', 'id:99', settings, targets), 180000);
+
+  // End-to-end priority prefetch populates local section cache
+  context.CN.state.isOnline = true;
+  context.Otzaria.call = async (method, payload) => {
+    if (method === 'storage.get') return { success: true, data: context._storage ? context._storage.get(payload.key) ?? null : null };
+    if (method === 'calendar.getJewishDate') return { success: true, data: { dafYomi: 'ברכות דף ב' } };
+    if (method === 'calendar.getEvents') return { success: true, data: [] };
+    if (method === 'library.findBooks') return { success: true, data: [{ id: 10, title: 'ברכות', bookId: 'ברכות' }] };
+    return { success: true, data: null };
+  };
+  const origCall = context.Otzaria.call;
+  const mockStore = new Map();
+  context.CN.storage.get = async (k, fb) => (mockStore.has(k) ? mockStore.get(k) : fb);
+  context.CN.storage.set = async (k, v) => { mockStore.set(k, v); return true; };
+  context.CN.storage.putCachedSectionNotes = async (bUid, rName, items) => {
+    mockStore.set('cached:' + bUid + '::' + rName, { savedAt: Date.now(), items });
+  };
+  context.CN.storage.getCachedSectionNotes = async (bUid, rName) => mockStore.get('cached:' + bUid + '::' + rName) || null;
+  context.Otzaria.call = origCall;
+  context.CN.api.request = async (method, pathQ) => {
+    if (pathQ === '/v1/books/id%3A10/index') {
+      return { ok: true, status: 200, data: { refs: { 'דף ב': { notes: 2, questions: 0 } } } };
+    }
+    if (pathQ.indexOf('/v1/books/id%3A10/notes') === 0) {
+      return { ok: true, status: 200, data: { items: [{ id: 'prefetched-1', body: 'פירוש בדף היומי' }] } };
+    }
+    return { ok: false, status: 404, data: null };
+  };
+
+  const syncMeta = await context.CN.sync.syncPriorityBooksIfDue({
+    force: true,
+    settings,
+    permissions: ['calendar.read', 'library.books.read'],
+  });
+  assert.ok(syncMeta.booksSynced >= 1);
+  assert.ok(syncMeta.sectionsCached >= 1);
+  assert.equal(mockStore.get('cached:id:10::דף ב').items[0].id, 'prefetched-1');
 });

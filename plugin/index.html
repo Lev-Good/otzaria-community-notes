@@ -13,6 +13,7 @@
   <script src="js/filter.js" defer></script>
   <script src="js/anchors.js" defer></script>
   <script src="js/api.js" defer></script>
+  <script src="js/sync.js" defer></script>
   <script src="js/highlights.js" defer></script>
   <script src="js/menus.js" defer></script>
   <script src="js/state.js" defer></script>
@@ -67,11 +68,15 @@
 
   <!-- Settings Overlay Panel -->
   <div class="overlay-scrim" id="settings-scrim"></div>
-  <aside class="overlay-panel" id="settings-panel" aria-label="הגדרות">
+  <aside class="overlay-panel overlay-panel-wide" id="settings-panel" aria-label="הגדרות">
     <div class="panel-head">
-      <span>הגדרות</span>
+      <div class="panel-head-titles">
+        <span>הגדרות הערות הקהילה</span>
+        <span class="panel-head-subtitle" id="settings-subtitle"></span>
+      </div>
       <button type="button" class="btn-secondary" id="close-settings-btn">סגור</button>
     </div>
+    <nav class="settings-tabs" id="settings-tabs" role="tablist" aria-label="קטגוריות הגדרות"></nav>
     <div class="panel-body" id="settings-body"></div>
   </aside>
 
